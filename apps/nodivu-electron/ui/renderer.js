@@ -242,3 +242,19 @@ let lastPoll=0;setInterval(()=>{if(!online||busy||polling||Date.now()-lastPoll<(
 $('project-folder').onclick=()=>void perform(async()=>{const result=await window.nodivu.projectFile('folder',{});if(!result.ok)throw new Error(result.error.message);});
 
 $('diagnostics-open').onclick=()=>void perform(async()=>{const result=await window.nodivu.openDiagnostics();if(!result.ok)throw new Error(result.error.message);});
+
+let updateState;
+function showUpdate(state){
+ updateState=state;$('update-version').textContent=`Versão ${state.current} · testes`;
+ $('update-message').textContent=(state.version?`Versão ${state.version}: `:'')+state.message;
+ const action={idle:['check','Verificar atualização'],error:['check','Tentar novamente'],available:['download','Baixar atualização'],downloaded:['install','Reiniciar e atualizar']}[state.phase];
+ $('update-action').hidden=!action;$('update-action').dataset.action=action?.[0]||'';$('update-action').textContent=action?.[1]||'Aguarde…';
+ $('update-progress').hidden=state.phase!=='downloading';$('update-progress').value=state.percent;
+}
+window.nodivu.onUpdate(showUpdate);window.nodivu.update('status').then(showUpdate).catch(e=>window.nodivu.reportFault(e.message));
+$('update-action').onclick=async()=>{const action=$('update-action').dataset.action;if(!action)return;
+ $('update-action').disabled=true;
+ try{if(action==='install'){if(busy)return;if(polling)await polling;await settleEdits();updateDirty();}showUpdate(await window.nodivu.update(action));}
+ catch(e){message=e.message;render();}finally{$('update-action').disabled=false;}
+};
+$('cable-installer').onclick=()=>void perform(async()=>{const result=await window.nodivu.installCable();if(!result.ok)throw new Error(result.error.message);});

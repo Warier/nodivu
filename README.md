@@ -124,7 +124,7 @@ scripts/                  Build, inicialização e ensaios de desenvolvimento
 third_party/clap-1.2.2/    Cabeçalhos e licença do contrato CLAP
 ```
 
-`Cargo.lock` e `package-lock.json` fazem parte do código versionado. `target/`, `.local/`, `.tools/` e `node_modules/` são gerados. Esta árvore não inclui Qt, o CLI interativo antigo, documentos internos de planejamento, instalador, drivers, perfis pessoais ou projetos salvos.
+`Cargo.lock` e `package-lock.json` fazem parte do código versionado. `target/`, `.local/`, `.tools/` e `node_modules/` são gerados. Esta árvore não inclui Qt, o CLI interativo antigo, documentos internos de planejamento, binários do instalador, drivers, perfis pessoais ou projetos salvos.
 
 ### Trabalhar nos plugins
 
@@ -178,9 +178,24 @@ O smoke verifica a interface e sua integração com o backend; sem `-Audio`, nã
 
 ## Limites atuais e contribuições
 
-Ainda faltam validação ampla em outros PCs, estabilidade prolongada e medição de latência ponta a ponta. O modo global de captura precisa de mais testes de exclusão. Recuperação automática de projetos, undo/redo, atualização pelo próprio aplicativo e um SDK de plugins mais completo são próximos passos; não são promessas de funcionalidades já disponíveis.
+Ainda faltam validação ampla em outros PCs, estabilidade prolongada e medição de latência ponta a ponta. O modo global de captura precisa de mais testes de exclusão. Recuperação automática de projetos, undo/redo e um SDK de plugins mais completo são próximos passos; não são promessas de funcionalidades já disponíveis.
 
-O auto-update está planejado com GitHub Releases, electron-builder e electron-updater/NSIS. A versão 0.1.2 usa um instalador Inno Setup e ainda exige atualização manual. A migração deverá preservar projetos, configurações, plugins externos e o VB-CABLE, e aplicar a atualização somente quando o usuário autorizar o reinício.
+### Atualizações e releases
+
+A partir de **0.1.3-beta.1**, o app instalado consulta o canal de testes no GitHub Releases ao abrir (após 15 segundos) e a cada seis horas. No painel **Atualizações**, você pode verificar, baixar e escolher **Reiniciar e atualizar**. O áudio só é interrompido após sua confirmação; salve as alterações do projeto antes. Fechar o app não instala automaticamente. Falhas de rede não impedem usar a versão instalada.
+
+Quem está na **0.1.2 ou anterior precisa instalar esta versão manualmente uma única vez**. O novo instalador NSIS adota a pasta da instalação Inno anterior. Projetos em Documentos/Nodivu/Projetos, perfil em `%APPDATA%\Nodivu` e VB-CABLE são preservados. Plugins de terceiros passam para `%APPDATA%\Nodivu\plugins`; adicione novos pacotes nessa pasta. Os plugins internos `mp3` e `windows-audio` são gerenciados pelo aplicativo. Depois do reinício, abra seu projeto nos Recentes.
+
+O instalador de testes ainda não tem assinatura Authenticode. O download usa HTTPS e a biblioteca verifica o SHA-512 publicado no feed; isso não substitui uma assinatura do editor. O controle de publicação da conta GitHub é parte da confiança da distribuição.
+
+Para gerar o instalador, rode `./scripts/Build-Release.ps1`. Ele monta o app, preserva licenças e inclui o instalador original do VB-CABLE básico (checksum fixado). A instalação do cabo é opcional, pelo botão no app, com confirmação e permissões solicitadas pelo próprio fornecedor. Atualizações do Nodivu não reinstalam nem reconfiguram o driver.
+
+O resultado em `.local/releases` inclui `.exe`, `.exe.blockmap` e `beta.yml`. Publique esses arquivos **da mesma execução de build** em uma prerelease com tag correspondente à versão do `package.json`; não edite hashes manualmente. `--publish never` é o padrão: compilar não publica. GitHub hospeda o feed e os downloads; não é necessário servidor próprio.
+
+### Fluxo de desenvolvimento
+
+`main` recebe mudanças verificadas. Funcionalidades são desenvolvidas em branches curtas (`feat/...`, `fix/...`) e integradas após revisão e testes. Commits comuns não geram releases nem alteram automaticamente a versão distribuída. Tags `v...` e GitHub Releases ficam reservados para entregas escolhidas aos testadores, com versão incrementada, notas, build e validação. Não manter uma branch `develop` permanente neste estágio reduz divergências desnecessárias.
+
 
 O grafo atual admite uma entrada de dispositivo e uma saída de dispositivo, até oito ganhos e oito instâncias externas no total. O catálogo é limitado a oito tipos externos. Múltiplos players e capturas de aplicativos usam instâncias externas independentes. Processamento é limitado deliberadamente para manter trabalho previsível; não há garantia de latência zero.
 

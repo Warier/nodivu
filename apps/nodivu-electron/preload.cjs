@@ -1,5 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('nodivu', {
+  update:action=>ipcRenderer.invoke('updates:action',action),
+  onUpdate:callback=>ipcRenderer.on('updates:state',(_event,state)=>callback(state)),
+  installCable:()=>ipcRenderer.invoke('cable:installer'),
   openDiagnostics:()=>ipcRenderer.invoke('diagnostics:open'),
   reportFault:message=>ipcRenderer.send('diagnostics:renderer',String(message).slice(0,2048)),
   recentProjects:()=>ipcRenderer.invoke('project:recents'),

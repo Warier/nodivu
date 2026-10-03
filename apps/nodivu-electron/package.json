@@ -1,8 +1,8 @@
 {
   "name": "nodivu-electron",
-  "version": "0.1.2",
+  "version": "0.1.3-beta.1",
   "private": true,
-  "description": "Canvas local de áudio Nodivu com motor Rust",
+  "description": "Canvas local de \u00c3\u00a1udio Nodivu com motor Rust",
   "main": "main.cjs",
   "engines": {
     "node": ">=22.12.0"
@@ -14,10 +14,20 @@
     "test:audio": "electron . --smoke-test --test-audio",
     "package": "node package.cjs",
     "dev:ui": "electron . --frontend-demo",
-    "test:ui": "node --test tests/demo-engine.test.cjs tests/playback-state.test.cjs tests/recents.test.cjs tests/virtual-cable.test.cjs"
+    "test:ui": "node --test tests/demo-engine.test.cjs tests/playback-state.test.cjs tests/recents.test.cjs tests/virtual-cable.test.cjs",
+    "dist": "electron-builder --config ../../scripts/release/config.cjs --win nsis --x64 --publish never"
   },
   "devDependencies": {
-    "electron": "44.2.0"
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "author": "Nodivu contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Warier/nodivu.git"
+  }
 }

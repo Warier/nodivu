@@ -5,7 +5,7 @@ const { Engine } = require('./engine.cjs');
 const { Diagnostics } = require('./diagnostics.cjs');
 const os = require('node:os');
 const {RecentProjects} = require('./recent-projects.cjs');
-let recentProjects, projectsDirectory;
+let recentProjects, projectsDirectory, installedManifest, updates;
 const demoMode=process.argv.includes('--frontend-demo');
 const {readProject, writeProject, resourcesForFile} = require('./project-files.cjs');
 let projectPath = null, projectDirty = false, confirmingClose = false;
@@ -13,6 +13,9 @@ const PAGE = 'nodivu://app/index.html';
 const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry']);
 const executable = app.isPackaged ? path.join(__dirname, 'bin/nodivu-app-backend.exe') : path.resolve(__dirname, '../../target/release/nodivu-app-backend.exe');
 let win, engine, quitting = false, exitCode = 0;
+const updateTest=process.argv.includes('--smoke-test') && process.argv.includes('--test-update');
+if(app.isPackaged && !process.argv.includes('--smoke-test') && !app.requestSingleInstanceLock())app.exit(0);
+app.on('second-instance',()=>{if(win){win.restore();win.focus();}});
 protocol.registerSchemesAsPrivileged([{ scheme: 'nodivu', privileges: { standard: true, secure: true } }]);
 const profileRoot=app.isPackaged ? path.join(app.getPath('appData'),'Nodivu') : path.resolve(__dirname,'../../.local/electron-profile');
 // Isolate Chromium caches as well as history from an already open user session.
@@ -23,7 +26,7 @@ diagnostics.record('app.start', { version: app.getVersion(), windows: os.release
 const startupRecoveryTest = process.argv.includes('--smoke-test') && process.argv.includes('--test-startup-recovery');
 let testHelloCalls=0, testDeviceCalls=0;
 function startEngine() {
-  const manifest=process.env.NODIVU_PLUGIN_MANIFEST || path.resolve(__dirname, app.isPackaged?'../../plugins/plugin.json':'../../.local/plugins/plugin.json');
+  const manifest=process.env.NODIVU_PLUGIN_MANIFEST || installedManifest || path.resolve(__dirname, app.isPackaged?'../../plugins/plugin.json':'../../.local/plugins/plugin.json');
   const env={...process.env,NODIVU_SCAN_PLUGINS:'1',NODIVU_APP_ROOT_PID:String(process.pid)};
   if(process.env.NODIVU_PLUGIN_MANIFEST || require('node:fs').existsSync(path.dirname(manifest))) env.NODIVU_PLUGIN_MANIFEST=manifest;
   engine = demoMode ? new (require('./demo-engine.cjs').DemoEngine)() : new Engine(executable,env);
@@ -80,7 +83,44 @@ app.whenReady().then(async () => {
     })();
   });
   for (const event of ['minimize', 'restore']) win.on(event, () => win.webContents.send('window:minimized', win.isMinimized()));
+  if (app.isPackaged && !demoMode && !process.env.NODIVU_PLUGIN_MANIFEST) {
+    installedManifest = await require('./plugin-storage.cjs').preparePlugins(
+      path.resolve(__dirname,'../../plugins'), path.join(app.getPath('userData'),'plugins'));
+  }
   startEngine();
+  const updateEnabled = app.isPackaged && process.platform === 'win32' && !demoMode &&
+    (!process.argv.includes('--smoke-test') || updateTest) && require('node:fs').existsSync(path.join(process.resourcesPath,'app-update.yml'));
+  const updater = updateEnabled ? require('electron-updater').autoUpdater : null;
+  if(updateTest){
+    const url=new URL(process.env.NODIVU_UPDATE_TEST_URL);
+    if(url.protocol!=='http:'||url.hostname!=='127.0.0.1')throw new Error('Feed de ensaio exige localhost explícito.');
+    updater.setFeedURL({provider:'generic',url:url.href,channel:'beta'});
+    // Only an explicit smoke test can install without the user's dialog or relaunch.
+    const install=updater.quitAndInstall.bind(updater);updater.quitAndInstall=()=>install(true,false);
+  }
+  updates = new (require('./updates.cjs').Updates)(updater, {
+    version:app.getVersion(), log:(event,data)=>diagnostics.record(event,data),
+    publish:state=>{if(!win.isDestroyed())win.webContents.send('updates:state',state);},
+    prepareInstall:async()=>{
+      if(projectDirty && updateTest)return false;
+      if(projectDirty){await dialog.showMessageBox(win,{type:'info',message:'Salve seu projeto antes de atualizar.',detail:'As alterações continuam abertas. Depois de salvar, clique em Reiniciar e atualizar novamente.'});return false;}
+      const choice=updateTest?{response:1}:await dialog.showMessageBox(win,{type:'question',message:'Reiniciar o Nodivu e instalar a atualização?',detail:'O áudio será interrompido durante a atualização. Seus projetos e configurações serão preservados.',buttons:['Depois','Reiniciar e atualizar'],defaultId:0,cancelId:0});
+      if(choice.response!==1)return false;
+      quitting=true;
+      if(engine)await engine.stop();
+      await diagnostics.flush();
+      return true;
+    }
+  });
+  ipcMain.handle('updates:action',async(event,action)=>{trusted(event);return action==='status'?updates.snapshot():updates.run(action);});
+  ipcMain.handle('cable:installer',async event=>{
+    trusted(event);
+    const file=path.resolve(__dirname,'../../third-party/vb-cable/VBCABLE_Setup_x64.exe');
+    try{await fs.access(file);const choice=await dialog.showMessageBox(win,{type:'question',message:'Abrir o instalador oficial do VB-CABLE?',detail:'VB-Audio Software · donationware. Pode pedir administrador e reinício do Windows. Se o cabo já funciona, não reinstale.',buttons:['Cancelar','Abrir instalador'],defaultId:0,cancelId:0});
+      if(choice.response===1){const error=await shell.openPath(file);if(error)throw new Error(error);}return {ok:true};
+    }catch(error){return {ok:false,error:{message:'Instalador do cabo indisponível: '+error.message}};}
+  });
+  if(updateEnabled){const check=setTimeout(()=>void updates.run('check'),15000);check.unref();const interval=setInterval(()=>void updates.run('check'),6*60*60*1000);interval.unref();}
   ipcMain.handle('engine:request', async (event, command, params) => {
     if (quitting) return {ok:false,error:{message:'Aplicativo encerrando.'}};
     trusted(event);
@@ -144,6 +184,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('engine:restart', async event => { trusted(event); await engine.stop(); startEngine(); });
   await win.loadURL(PAGE);
   if(process.argv.includes('--devtools'))win.webContents.openDevTools({mode:'detach'});
+  if(updateTest){await require('./smoke-update.cjs')(win,updates);return;}
   if (process.argv.includes('--smoke-test')) {
     try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-virtual-cable.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
     catch (error) { console.error(error); exitCode = 1; }
