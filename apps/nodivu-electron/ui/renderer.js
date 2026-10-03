@@ -11,7 +11,7 @@ const $=id=>document.getElementById(id);
 window.addEventListener('error',event=>window.nodivu.reportFault(event.message));
 window.addEventListener('unhandledrejection',event=>window.nodivu.reportFault(event.reason?.message||String(event.reason)));
 let snapshot=null,devices=[],online=false,busy=false,polling=null,minimized=false,message='',armed=null,drag=null;
-let deviceIssue='';
+let deviceIssue='',monitorListStamp='';
 const positions=new Map(),views=new Map(),pending=new Map(),resources=new Map(),playerErrors=new Map();let editTimer;
 let savedStamp=null,projectPath='',lastDirty=null;
 const camera=createViewport({viewport:$('viewport'),canvas:$('canvas'),onChange:()=>{draw();updateDirty();},bounds:()=>{
@@ -179,7 +179,7 @@ function render(){
  $('project-recents').disabled=!online||busy||$('project-recents').options.length<2;
  const cable=cableInventory(devices);$('cable-status').textContent=cable.message;$('cable-setup').dataset.state=cable.state;$('cable-route').textContent=cableRouteMessage(snapshot,devices);$('virtual-output').disabled=!online||busy;
  $('reconnect').hidden=online;for(const id of['mute-all','refresh','retry','quick-start','project-save','project-open'])$(id).disabled=!online||busy;$('reconnect').disabled=busy;document.body.dataset.ready=String(online);document.body.dataset.busy=String(busy);
- renderAudio();
+ renderAudio();renderMonitor();
  // Disable palette actions even before the first valid snapshot exists.
  for(const b of $('palette').querySelectorAll('button'))if(!snapshot||!online||busy)b.disabled=true;
  if(!snapshot){$('status').textContent=busy?'Conectando…':'Backend indisponível';$('error').textContent=message;$('error').hidden=!message;return;}
@@ -258,3 +258,23 @@ $('update-action').onclick=async()=>{const action=$('update-action').dataset.act
  catch(e){message=e.message;render();}finally{$('update-action').disabled=false;}
 };
 $('cable-installer').onclick=()=>void perform(async()=>{const result=await window.nodivu.installCable();if(!result.ok)throw new Error(result.error.message);});
+
+// Audition is session state, not part of the project document or dirty stamp.
+// Keep the selector choice during polling, never choose a device by a name match.
+
+function renderMonitor(){
+ const select=$('monitor-device'),button=$('monitor-toggle');
+ const primary=snapshot?.graph.nodes.find(n=>n.block.kind==='output')?.block.endpoint_id;
+ const options=devices.filter(d=>d.flow==='render'&&d.state==='active'&&d.endpoint_id!==primary).sort((a,b)=>Number(b.is_default)-Number(a.is_default));
+ const state=snapshot?.monitor,selected=state?.endpoint_id;
+ const stamp=JSON.stringify([options,selected]);
+ if(stamp!==monitorListStamp){const previous=select.value;select.replaceChildren(new Option('Selecione seus fones…',''));for(const d of options)select.add(new Option((d.is_default?'★ Padrão · ':'')+d.name,d.endpoint_id));if(selected&&!options.some(d=>d.endpoint_id===selected))select.add(new Option('Dispositivo selecionado indisponível',selected));select.value=selected||previous;monitorListStamp=stamp;}
+ const phase=state?.runtime?.state||'off';
+ button.textContent=selected?'Desligar escuta':'Ligar escuta';
+ button.disabled=!online||busy||Boolean(snapshot?.demo)||(!selected&&(!select.value||!primary));
+ select.disabled=!online||busy||Boolean(selected)||Boolean(snapshot?.demo);
+ $('monitor-status').textContent=snapshot?.demo?'Demonstração: sem áudio.':!online?'Backend desconectado.':state?.runtime?.error?.message?('Falha somente na escuta: '+state.runtime.error.message):selected?(phase==='running'?'Escutando a saída final nos fones.':phase==='starting'?'Abrindo saída de escuta…':'Aguardando áudio principal.'): 'Desligada. O áudio principal continua normal.';
+ $('monitor-panel').dataset.state=phase;
+}
+$('monitor-device').onchange=renderMonitor;
+$('monitor-toggle').onclick=()=>void perform(async()=>{await settleEdits();apply(await api('audio.monitor',{endpoint_id:snapshot?.monitor?.endpoint_id?null:$('monitor-device').value}));});

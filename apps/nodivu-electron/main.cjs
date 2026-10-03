@@ -10,7 +10,7 @@ const demoMode=process.argv.includes('--frontend-demo');
 const {readProject, writeProject, resourcesForFile} = require('./project-files.cjs');
 let projectPath = null, projectDirty = false, confirmingClose = false;
 const PAGE = 'nodivu://app/index.html';
-const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry']);
+const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry','audio.monitor']);
 const executable = app.isPackaged ? path.join(__dirname, 'bin/nodivu-app-backend.exe') : path.resolve(__dirname, '../../target/release/nodivu-app-backend.exe');
 let win, engine, quitting = false, exitCode = 0;
 const updateTest=process.argv.includes('--smoke-test') && process.argv.includes('--test-update');
@@ -186,7 +186,7 @@ app.whenReady().then(async () => {
   if(process.argv.includes('--devtools'))win.webContents.openDevTools({mode:'detach'});
   if(updateTest){await require('./smoke-update.cjs')(win,updates);return;}
   if (process.argv.includes('--smoke-test')) {
-    try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-virtual-cable.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
+    try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-virtual-cable.cjs')(win); if(process.argv.includes('--test-monitor'))await require('./smoke-monitor.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
     catch (error) { console.error(error); exitCode = 1; }
     await shutdown();
   }

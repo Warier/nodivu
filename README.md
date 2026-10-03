@@ -126,6 +126,16 @@ third_party/clap-1.2.2/    Cabeçalhos e licença do contrato CLAP
 
 `Cargo.lock` e `package-lock.json` fazem parte do código versionado. `target/`, `.local/`, `.tools/` e `node_modules/` são gerados. Esta árvore não inclui Qt, o CLI interativo antigo, documentos internos de planejamento, binários do instalador, drivers, perfis pessoais ou projetos salvos.
 
+### Escutar a saída final nos fones (desenvolvimento)
+
+No painel **Escuta local → Ouvir minha saída**, selecione seus fones e clique em **Ligar escuta**. Mantenha **CABLE Input** na saída principal para enviar o mesmo mix aos outros apps. Ganhos, plugins, players, Mixer e Silenciar tudo já fazem parte do áudio copiado. Desligar a escuta libera apenas os fones; o cabo continua recebendo áudio. A saída principal não pode ser escolhida como escuta.
+
+A escuta começa desligada ao abrir o app e não é salva dentro do projeto. Nenhum dispositivo ou volume padrão do Windows muda. Use fones para evitar que o microfone recapture os alto-falantes. Se a saída secundária desaparecer, o painel informa a falha, sem trocar de dispositivo ou interromper a saída principal; desligue e ligue a escuta para tentar novamente.
+
+A cópia é feita no backend após o processamento, por uma fila estéreo limitada de 4096 frames, sem executar os plugins novamente e sem PCM passando pelo Electron. O relógio dos fones é independente: a escuta usa pré-enchimento alvo de 20 ms, além dos buffers dos dispositivos. A correção inicial de deriva descarta backlog antigo ou volta ao pré-enchimento; pode haver descontinuidades sob carga. Isso não adiciona espera ao caminho principal e não é garantia de latência ponta a ponta ou monitoramento profissional sem falhas.
+
+Essa funcionalidade está no código de desenvolvimento, **fora do release 0.1.3-beta.1**. Para testar, faça o build local. Ensaio real repetível: `node scripts/Test-LocalMonitor.cjs <id-saida-principal> <id-saida-monitor> <id-captura-pareada-monitor>`. Use um cabo na saída de monitor para medir a recepção; IDs devem vir de `devices.list`, sem escolher por posição. O teste verifica ganho, mute, liga/desliga e ausência de reabertura da saída principal. Para testar o painel, defina `NODIVU_TEST_PRIMARY` e `NODIVU_TEST_MONITOR` com IDs explícitos e execute `./scripts/Test-Electron.ps1 -Monitor`.
+
 ### Trabalhar nos plugins
 
 Para recompilar apenas um plugin, a partir da raiz:
@@ -197,7 +207,7 @@ O resultado em `.local/releases` inclui `.exe`, `.exe.blockmap` e `beta.yml`. Pu
 `main` recebe mudanças verificadas. Funcionalidades são desenvolvidas em branches curtas (`feat/...`, `fix/...`) e integradas após revisão e testes. Commits comuns não geram releases nem alteram automaticamente a versão distribuída. Tags `v...` e GitHub Releases ficam reservados para entregas escolhidas aos testadores, com versão incrementada, notas, build e validação. Não manter uma branch `develop` permanente neste estágio reduz divergências desnecessárias.
 
 
-O grafo atual admite uma entrada de dispositivo e uma saída de dispositivo, até oito ganhos e oito instâncias externas no total. O catálogo é limitado a oito tipos externos. Múltiplos players e capturas de aplicativos usam instâncias externas independentes. Processamento é limitado deliberadamente para manter trabalho previsível; não há garantia de latência zero.
+O grafo atual admite uma entrada de dispositivo e uma saída principal de dispositivo (mais uma escuta local opcional), até oito ganhos e oito instâncias externas no total. O catálogo é limitado a oito tipos externos. Múltiplos players e capturas de aplicativos usam instâncias externas independentes. Processamento é limitado deliberadamente para manter trabalho previsível; não há garantia de latência zero.
 
 Contribuições são bem-vindas. Descreva o problema, a mudança e os testes feitos. Preserve IDs dos plugins e compatibilidade dos projetos; alterações no callback de áudio precisam manter buffers limitados, sem acesso a disco/rede, alocações ou esperas por comandos. Não troque dispositivos, volumes globais ou padrões do Windows para fazer um teste passar. Testes com dispositivos simulados não demonstram funcionamento em hardware.
 

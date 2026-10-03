@@ -16,6 +16,7 @@ pub struct AudioConfig {
 
 #[derive(Default)]
 pub(crate) struct Shared {
+    pub monitor: crate::monitor::Queue,
     pub route_nodes: [crate::diagnostics::SharedRouteNode; 32],
     pub route_latency: AtomicU32,
     pub route_delay: AtomicU32,
@@ -64,6 +65,7 @@ pub(crate) struct Shared {
 }
 
 pub struct AudioSession {
+    monitor: Option<crate::monitor::Monitor>,
     pub(crate) shared: Arc<Shared>,
     worker: Option<JoinHandle<()>>,
 }
@@ -72,6 +74,7 @@ impl AudioSession {
         Self {
             shared,
             worker: None,
+            monitor: None,
         }
     }
     #[cfg(windows)]
@@ -101,7 +104,20 @@ impl AudioSession {
         Ok(Self {
             shared,
             worker: Some(worker),
+            monitor: None,
         })
+    }
+    pub fn set_monitor(&mut self, endpoint: Option<DeviceId>) -> Result<(), ApiError> {
+        self.monitor = None;
+        if let Some(id) = endpoint {
+            self.monitor = Some(crate::monitor::Monitor::start(self.shared.clone(), id)?);
+        }
+        Ok(())
+    }
+    pub fn monitor_snapshot(&self) -> Value {
+        self.monitor
+            .as_ref()
+            .map_or(json!({"state":"off"}), |m| m.snapshot())
     }
     pub fn state(&self) -> &'static str {
         if self.worker.as_ref().is_some_and(|w| w.is_finished())
@@ -151,6 +167,7 @@ impl AudioSession {
         audio_metrics(&self.shared, self.state() == "running")
     }
     pub fn stop(&mut self) -> Result<(), BackendError> {
+        self.monitor = None;
         self.shared.stop.store(true, Ordering::Relaxed);
         if self.worker.is_none() {
             return Ok(());

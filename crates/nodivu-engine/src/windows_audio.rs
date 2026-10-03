@@ -410,6 +410,7 @@ fn render_packet(
     while offset < frames as usize {
         let count = BLOCK_FRAMES.min(frames as usize - offset);
         bus.render_with_effect(&mut block[..count], effect);
+
         for (i, frame) in block[..count].iter().enumerate() {
             // SAFETY: faixa da aquisição; formato float32/canais 1 ou 2 negociado em open.
             unsafe {
@@ -422,6 +423,14 @@ fn render_packet(
                 }
             }
         }
+        // Final mix after nodes/mute and the primary channel conversion.
+        if stream.channels == 1 {
+            for f in &mut block[..count] {
+                let mono = (f[0] + f[1]) * 0.5;
+                *f = [mono, mono];
+            }
+        }
+        shared.monitor.push(&block[..count]);
         offset += count;
     }
     // SAFETY: todos os frames foram escritos e não serão acessados após ReleaseBuffer.
@@ -676,4 +685,101 @@ fn record_capture_failure(shared: &Shared, error: windows::core::Error, operatio
     shared
         .capture_failure
         .store(error.code().0, Ordering::Release);
+}
+
+/// Independent sink: errors and pacing never stop the primary render worker.
+pub(crate) fn run_monitor(
+    endpoint: &nodivu_core::DeviceId,
+    primary: &Shared,
+    shared: &Shared,
+) -> Result<()> {
+    let _apartment = Apartment::new()?;
+    // SAFETY: COM and every client/service remain on this thread.
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? };
+    let output = open(&enumerator, &endpoint.0, shared, false, false)?;
+    // SAFETY: initialized render client, released before the stream.
+    let render: IAudioRenderClient = unsafe { output.client.GetService()? };
+    let queue = &primary.monitor;
+    queue.trim(0);
+    queue.dropped.store(0, Ordering::Relaxed);
+    queue.underruns.store(0, Ordering::Relaxed);
+    queue.enabled.store(true, Ordering::Release);
+    let _scheduling = AudioScheduling::new()?;
+    // SAFETY: initialized shared-mode client owned by this worker.
+    unsafe {
+        output.client.Start()?;
+    }
+    shared.state.store(1, Ordering::Release);
+    let mut primed = false;
+    let mut last_render = Instant::now();
+    while !shared.stop.load(Ordering::Acquire) && !primary.stop.load(Ordering::Acquire) {
+        // SAFETY: one live event, bounded wait outside acquired audio buffers.
+        if unsafe { WaitForMultipleObjects(&[output.event.0], false, 20) } == WAIT_FAILED {
+            return Err(windows::core::Error::from_thread());
+        }
+        // SAFETY: client owned by this worker; padding bounds buffer acquisition.
+        let padding = unsafe { output.client.GetCurrentPadding()? };
+        let frames = output
+            .frames
+            .checked_sub(padding)
+            .ok_or_else(|| windows::core::Error::from(E_UNEXPECTED))?;
+        if frames == 0 {
+            if last_render.elapsed() > Duration::from_secs(2) {
+                return Err(AUDCLNT_E_DEVICE_INVALIDATED.into());
+            }
+            continue;
+        }
+        last_render = Instant::now();
+        // Two clocks may drift: discard oldest backlog, never grow latency without bound.
+        if queue.available() > crate::monitor::TARGET * 2 {
+            queue.trim(crate::monitor::TARGET);
+        }
+        if !primed && queue.available() >= crate::monitor::TARGET {
+            primed = true;
+        }
+        // SAFETY: frames <= free capacity; pointer released exactly once below.
+        let pointer = unsafe { render.GetBuffer(frames)? };
+        if pointer.is_null() {
+            // SAFETY: release this acquisition as silent, even for a broken driver pointer.
+            unsafe {
+                render.ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)?;
+            }
+            return Err(E_POINTER.into());
+        }
+        let mut missing = false;
+        for i in 0..frames as usize {
+            let frame = if primed {
+                queue.pop().unwrap_or_else(|| {
+                    missing = true;
+                    [0.; 2]
+                })
+            } else {
+                [0.; 2]
+            };
+            // SAFETY: negotiated float32 mono/stereo, index inside acquired frames.
+            unsafe {
+                let p = pointer.cast::<f32>().add(i * output.channels);
+                if output.channels == 1 {
+                    p.write_unaligned((frame[0] + frame[1]) * 0.5);
+                } else {
+                    p.write_unaligned(frame[0]);
+                    p.add(1).write_unaligned(frame[1]);
+                }
+            }
+        }
+        if missing {
+            primed = false;
+            queue.underruns.fetch_add(1, Ordering::Relaxed);
+        }
+        // SAFETY: every frame initialized, no access after release.
+        unsafe {
+            render.ReleaseBuffer(frames, 0)?;
+        }
+    }
+    // SAFETY: stop only our own secondary client, never the primary device.
+    unsafe {
+        output.client.Stop()?;
+    }
+    Ok(())
 }

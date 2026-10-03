@@ -6,6 +6,7 @@ pub mod discovery;
 mod dsp;
 pub mod external_audio;
 mod live_graph;
+mod monitor;
 mod pipeline;
 mod plan_mailbox;
 pub mod routing_preview;

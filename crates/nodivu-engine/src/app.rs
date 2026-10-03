@@ -20,6 +20,12 @@ struct Add {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MonitorRequest {
+    endpoint_id: Option<DeviceId>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Mute {
     muted: bool,
 }
@@ -29,6 +35,7 @@ pub struct AppBackend<B> {
     graph: Graph,
     revision: u64,
     muted: bool,
+    monitor_endpoint: Option<DeviceId>,
     audio: Option<AudioSession>,
     opened: Option<(Option<DeviceId>, DeviceId)>,
     last_error: Option<ApiError>,
@@ -43,6 +50,7 @@ impl<B: DeviceBackend> AppBackend<B> {
             graph: Graph::default(),
             revision: 0,
             muted: false,
+            monitor_endpoint: None,
             audio: None,
             opened: None,
             last_error: None,
@@ -74,7 +82,7 @@ impl<B: DeviceBackend> AppBackend<B> {
         }
     }
     pub fn snapshot(&self) -> Value {
-        json!({"suspended":self.suspended,"plugin_states":self.backend.plugin_runtime(),"revision":self.revision,"graph":self.graph,"muted":self.muted,"engine_state":self.audio.as_ref().map_or("idle",|a|a.state()),"generation":self.generation,
+        json!({"monitor":{"endpoint_id":self.monitor_endpoint,"runtime":self.audio.as_ref().map_or(json!({"state":"off"}),|a|a.monitor_snapshot())},"suspended":self.suspended,"plugin_states":self.backend.plugin_runtime(),"revision":self.revision,"graph":self.graph,"muted":self.muted,"engine_state":self.audio.as_ref().map_or("idle",|a|a.state()),"generation":self.generation,
             "signal":if self.muted { 0 } else { self.graph.live_plan(self.muted, |id| self.backend.plugin_latency(id)).map_or(0, |p| p.signal.source) },"metrics":self.audio.as_ref().map(|a|a.metrics()),
             "last_error":self.audio.as_ref().and_then(|a|a.error()).or_else(||self.last_error.clone()),
             "capture_error":self.audio.as_ref().and_then(|a|a.capture_error())})
@@ -114,10 +122,16 @@ impl<B: DeviceBackend> AppBackend<B> {
             self.opened = Some((capture.clone(), output.clone()));
             match self.backend.start_audio(AudioConfig {
                 capture,
-                output,
+                output: output.clone(),
                 plan,
             }) {
-                Ok(audio) => {
+                Ok(mut audio) => {
+                    if self.monitor_endpoint.as_ref() == Some(&output) {
+                        self.monitor_endpoint = None;
+                    }
+                    if let Err(e) = audio.set_monitor(self.monitor_endpoint.clone()) {
+                        self.last_error = Some(e);
+                    }
                     self.audio = Some(audio);
                     self.generation += 1;
                 }
@@ -356,6 +370,38 @@ impl<B: DeviceBackend> AppBackend<B> {
                 let mut graph = self.graph.clone();
                 graph.nodes.push(Node { id, block });
                 self.apply(graph)
+            }
+            "audio.monitor" => {
+                let p: MonitorRequest = params(request.params)?;
+                if let Some(id) = &p.endpoint_id {
+                    let output = self.graph.endpoint(false).ok_or_else(|| {
+                        ApiError::invalid("Selecione primeiro a saída principal do projeto.")
+                    })?;
+                    if *id == output {
+                        return Err(ApiError::invalid(
+                            "A escuta deve usar uma saída diferente da saída principal.",
+                        ));
+                    }
+                    let devices = self
+                        .backend
+                        .enumerate()
+                        .map_err(|e| ApiError::new(ErrorCode::BackendError, e.to_string()))?;
+                    if !devices.iter().any(|d| {
+                        d.endpoint_id == *id
+                            && d.flow == Flow::Render
+                            && d.state == DeviceState::Active
+                    }) {
+                        return Err(ApiError::new(
+                            ErrorCode::DeviceUnavailable,
+                            "Selecione uma saída ativa para escutar.",
+                        ));
+                    }
+                }
+                if let Some(audio) = &mut self.audio {
+                    audio.set_monitor(p.endpoint_id.clone())?;
+                }
+                self.monitor_endpoint = p.endpoint_id;
+                Ok(self.snapshot())
             }
             "audio.mute" => {
                 let p: Mute = params(request.params)?;

@@ -168,3 +168,43 @@ fn virtual_selection_uses_ids_and_preserves_route_on_wrong_flow_missing_or_inact
     assert_eq!(state.attempts.len(), 2);
     assert_eq!(state.attempts[0], state.attempts[1]);
 }
+
+#[test]
+fn monitor_selection_does_not_edit_project_or_reopen_primary() {
+    let state = Rc::new(RefCell::new(State {
+        devices: vec![
+            device("cable", Flow::Render),
+            device("phones", Flow::Render),
+            device("mic", Flow::Capture),
+        ],
+        ..State::default()
+    }));
+    let mut app = AppBackend::new(FakeBackend(state.clone(), 0));
+    assert!(call(&mut app, "audio.monitor", json!({"endpoint_id":"phones"})).is_err());
+    let mut s = call(
+        &mut app,
+        "node.add",
+        json!({"expected_revision":0,"kind":"output"}),
+    )
+    .unwrap();
+    s["graph"]["nodes"][0]["block"]["endpoint_id"] = json!("cable");
+    s = call(
+        &mut app,
+        "graph.apply",
+        json!({"expected_revision":s["revision"],"graph":s["graph"]}),
+    )
+    .unwrap();
+    for id in ["cable", "mic", "missing"] {
+        assert!(call(&mut app, "audio.monitor", json!({"endpoint_id":id})).is_err());
+    }
+    let monitored = call(&mut app, "audio.monitor", json!({"endpoint_id":"phones"})).unwrap();
+    assert_eq!(monitored["monitor"]["endpoint_id"], "phones");
+    assert_eq!(monitored["revision"], s["revision"]);
+    assert_eq!(monitored["graph"], s["graph"]);
+    call(&mut app, "audio.monitor", json!({"endpoint_id":null})).unwrap();
+    assert_eq!(
+        state.borrow().attempts.len(),
+        1,
+        "monitor control never restarts primary"
+    );
+}

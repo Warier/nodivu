@@ -25,3 +25,5 @@ main,.layout{min-height:0}#viewport{min-height:0;overflow:hidden;touch-action:no
 .player-seek,.player-time{grid-column:1/-1;width:100%}.player-time{display:block;text-align:center;color:#dbe3ef;font-variant-numeric:tabular-nums;font-size:12px;margin:4px 0 10px}.node-content .player-seek{margin-top:18px}
 
 #updates-panel p{overflow-wrap:anywhere}#update-progress{width:100%;accent-color:var(--mint)}
+
+#monitor-panel select {width:100%;margin:8px 0;min-width:0} #monitor-panel label{font-size:12px;color:var(--muted)} #monitor-panel[data-state="error"] #monitor-status{color:#f3b2bb}
