@@ -1,0 +1,1 @@
+export default {kind:'capture',title:'Entrada do sistema',subtitle:'Microfone · captura',icon:'↗',inputs:0,outputs:1,fields:[{key:'endpoint_id',label:'Microfone ativo',type:'device',flow:'capture'}],note:'A captura abre ao selecionar entrada e saída. Retire o dispositivo para liberá-la.'};

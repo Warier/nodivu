@@ -1,0 +1,13 @@
+[package]
+license.workspace = true
+name = "nodivu-plugin-tone"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nodivu-block.workspace = true
+
+[lints]
+workspace = true

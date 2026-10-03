@@ -1,0 +1,1 @@
+export default {kind:'mixer',title:'Mixer',subtitle:'Somar até quatro sinais',icon:'Σ',inputs:4,outputs:1,fields:[],note:'Entradas 1–4 somam sem reduzir o volume. Use Ganho antes de cada entrada para ajustar a contribuição. Uma saída pode alimentar vários destinos.'};

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "library": "nodivu-consumer.clap",
+  "plugin_id": "org.nodivu.fixture.consumer",
+  "title": "Consumidor C",
+  "description": "Exemplo nativo com entrada estéreo e nenhuma saída. Recebe PCM e verifica amostras; não grava arquivos nem cria dispositivos.",
+  "accent": "#75c8e5",
+  "layout": "stack",
+  "controls": []
+}

@@ -1,0 +1,1 @@
+export default {kind:'output',title:'Saída de áudio',subtitle:'Fones ou microfone virtual',icon:'↙',inputs:1,outputs:0,fields:[{key:'endpoint_id',label:'Destino · fones ou CABLE Input',type:'device',flow:'render'}],note:'Para outros apps: CABLE Input aqui e CABLE Output como microfone no destino. Uma saída por projeto.'};

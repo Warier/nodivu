@@ -1,0 +1,1 @@
+export default {kind:'meter',title:'Medidor',subtitle:'Consumidor de áudio',icon:'▥',inputs:1,outputs:0,fields:[],note:'Recebe e mede o sinal sem enviá-lo adiante. Pode compartilhar a fonte com outros destinos. O relógio de áudio requer uma saída do sistema selecionada.'};

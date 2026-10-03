@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "library": "nodivu-fixture.clap",
+  "plugin_id": "org.nodivu.fixture.gain",
+  "title": "Studio Gain",
+  "description": "Efeito nativo independente. Ajuste a intensidade sem interromper o som.",
+  "accent": "#e6aa68",
+  "layout": "grid",
+  "controls": [
+    {"parameter": 7, "label": "Intensidade", "widget": "slider", "unit": "×", "group": "Seu sinal"}
+  ]
+}

@@ -1,0 +1,1 @@
+export default {kind:'tone',title:'Tom de teste',subtitle:'Gerador · 440 Hz',icon:'∿',inputs:0,outputs:1,fields:[{key:'enabled',label:'Gerar tom',type:'checkbox'}],note:'Senoide em volume baixo para conferir a saída sem microfone.'};

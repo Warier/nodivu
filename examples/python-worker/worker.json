@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "plugin_id": "org.nodivu.python.gain",
+  "title": "Python · Ganho",
+  "description": "Efeito em processo Python local. Se atrasar ou falhar, produz silêncio. Cada bloco acrescenta 20 ms.",
+  "accent": "#79CDA0",
+  "python": "python",
+  "script": "worker.py",
+  "profile": "effect-gain-v1"
+}

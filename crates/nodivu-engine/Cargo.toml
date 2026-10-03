@@ -1,0 +1,22 @@
+[package]
+license.workspace = true
+name = "nodivu-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nodivu-block.workspace = true
+nodivu-plugin-gain.workspace = true
+nodivu-plugin-tone.workspace = true
+serde.workspace = true
+nodivu-core.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+
+[lints]
+workspace = true

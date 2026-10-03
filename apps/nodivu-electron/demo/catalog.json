@@ -1,0 +1,51 @@
+{
+  "max_instances": 8,
+  "plugins": [
+    {
+      "appearance": {
+        "accent": "#72BCF7",
+        "controls": [],
+        "description": "MP3, WAV ou M4A/AAC local, até 10 minutos / 256 MiB. Play/pause e busca pela barra.",
+        "layout": "stack",
+        "plugin_id": "org.nodivu.mp3-player",
+        "schema_version": 1,
+        "title": "Player de áudio"
+      },
+      "capture_source": false,
+      "consumer": false,
+      "file_player": true,
+      "file_transport": true,
+      "id": "org.nodivu.mp3-player",
+      "inputs": [],
+      "name": "Player de áudio",
+      "outputs": [
+        0
+      ],
+      "parameters": [],
+      "source": true
+    },
+    {
+      "appearance": {
+        "accent": "#70D7C5",
+        "controls": [],
+        "description": "Selecione um aplicativo ou o som do PC sem Nodivu. Captura uma cópia: o programa original continua tocando. Navegadores incluem subprocessos, não abas isoladas.",
+        "layout": "stack",
+        "plugin_id": "org.nodivu.windows-audio",
+        "schema_version": 1,
+        "title": "Áudio de aplicativos"
+      },
+      "capture_source": true,
+      "consumer": false,
+      "file_player": false,
+      "file_transport": false,
+      "id": "org.nodivu.windows-audio",
+      "inputs": [],
+      "name": "Áudio de aplicativos",
+      "outputs": [
+        0
+      ],
+      "parameters": [],
+      "source": true
+    }
+  ]
+}

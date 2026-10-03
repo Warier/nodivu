@@ -1,0 +1,19 @@
+[package]
+license.workspace = true
+name = "nodivu-app-backend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+[dependencies]
+nodivu-core.workspace = true
+nodivu-block.workspace = true
+nodivu-engine.workspace = true
+nodivu-ipc.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+uuid.workspace = true
+[target.'cfg(windows)'.dependencies]
+nodivu-clap-host = { path = "../nodivu-clap-host" }
+[lints]
+workspace = true

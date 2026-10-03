@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "library": "nodivu-mp3.clap",
+  "plugin_id": "org.nodivu.mp3-player",
+  "title": "Player de áudio",
+  "description": "MP3, WAV ou M4A/AAC local, até 10 minutos / 256 MiB. Play/pause e busca pela barra.",
+  "accent": "#72BCF7",
+  "layout": "stack",
+  "controls": []
+}

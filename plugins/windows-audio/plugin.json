@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "library": "nodivu-windows-audio.clap",
+  "plugin_id": "org.nodivu.windows-audio",
+  "title": "Áudio de aplicativos",
+  "description": "Selecione um aplicativo ou o som do PC sem Nodivu. Captura uma cópia: o programa original continua tocando. Navegadores incluem subprocessos, não abas isoladas.",
+  "accent": "#70D7C5",
+  "layout": "stack",
+  "controls": []
+}
