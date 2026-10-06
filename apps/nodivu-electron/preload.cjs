@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('nodivu', {
   installCable:()=>ipcRenderer.invoke('cable:installer'),
   openDiagnostics:()=>ipcRenderer.invoke('diagnostics:open'),
   reportFault:message=>ipcRenderer.send('diagnostics:renderer',String(message).slice(0,2048)),
+  onRecovery:callback=>ipcRenderer.on('recovery:state',(_event,state)=>callback(state)),
+  recovery:(action,payload)=>ipcRenderer.invoke('project:recovery',action,payload),
   recentProjects:()=>ipcRenderer.invoke('project:recents'),
   projectFile:(action,payload)=>ipcRenderer.invoke('project:file',action,payload),
   setProjectDirty:dirty=>ipcRenderer.send('project:dirty',dirty),

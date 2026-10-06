@@ -5,7 +5,8 @@ const { Engine } = require('./engine.cjs');
 const { Diagnostics } = require('./diagnostics.cjs');
 const os = require('node:os');
 const {RecentProjects} = require('./recent-projects.cjs');
-let recentProjects, projectsDirectory, installedManifest, updates;
+let recentProjects, projectsDirectory, installedManifest, updates, recovery;
+let projectOperation=false;
 const demoMode=process.argv.includes('--frontend-demo');
 const {readProject, writeProject, resourcesForFile} = require('./project-files.cjs');
 let projectPath = null, projectDirty = false, confirmingClose = false;
@@ -13,13 +14,17 @@ const PAGE = 'nodivu://app/index.html';
 const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry','audio.monitor']);
 const executable = app.isPackaged ? path.join(__dirname, 'bin/nodivu-app-backend.exe') : path.resolve(__dirname, '../../target/release/nodivu-app-backend.exe');
 let win, engine, quitting = false, exitCode = 0;
+const recoveryTest=process.argv.includes('--smoke-test')&&process.argv.includes('--test-recovery');
+const recoveryTestId=process.env.NODIVU_RECOVERY_TEST_ID;
+if(recoveryTest&&!/^[a-zA-Z0-9-]{1,80}$/.test(recoveryTestId||''))throw new Error('ID de ensaio de recuperação inválido.');
 const updateTest=process.argv.includes('--smoke-test') && process.argv.includes('--test-update');
-if(app.isPackaged && !process.argv.includes('--smoke-test') && !app.requestSingleInstanceLock())app.exit(0);
+
 app.on('second-instance',()=>{if(win){win.restore();win.focus();}});
 protocol.registerSchemesAsPrivileged([{ scheme: 'nodivu', privileges: { standard: true, secure: true } }]);
 const profileRoot=app.isPackaged ? path.join(app.getPath('appData'),'Nodivu') : path.resolve(__dirname,'../../.local/electron-profile');
 // Isolate Chromium caches as well as history from an already open user session.
-app.setPath('userData', process.argv.includes('--smoke-test')?path.join(app.getPath('temp'),'Nodivu-smoke-'+process.pid):profileRoot);
+app.setPath('userData', process.argv.includes('--smoke-test')?path.join(app.getPath('temp'),recoveryTest?'Nodivu-recovery-smoke-'+recoveryTestId:'Nodivu-smoke-'+process.pid):profileRoot);
+if(!process.argv.includes('--smoke-test') && !app.requestSingleInstanceLock())app.exit(0);
 const diagnostics = new Diagnostics(path.join(app.getPath('userData'), 'logs'));
 diagnostics.record('app.start', { version: app.getVersion(), windows: os.release(), os: os.version(), arch: process.arch, electron: process.versions.electron, demo: demoMode, smoke: process.argv.includes('--smoke-test') });
 // Deliberate fault injection is restricted to this opt-in integration test.
@@ -30,7 +35,7 @@ function startEngine() {
   const env={...process.env,NODIVU_SCAN_PLUGINS:'1',NODIVU_APP_ROOT_PID:String(process.pid)};
   if(process.env.NODIVU_PLUGIN_MANIFEST || require('node:fs').existsSync(path.dirname(manifest))) env.NODIVU_PLUGIN_MANIFEST=manifest;
   engine = demoMode ? new (require('./demo-engine.cjs').DemoEngine)() : new Engine(executable,env);
-  engine.on('fault', message => { diagnostics.record('backend.fault', {message}); if (win && !win.isDestroyed()) win.webContents.send('engine:fault', message); });
+  engine.on('fault', message => { diagnostics.record('backend.fault', {message}); if (win && !win.isDestroyed()) {if(recovery)win.webContents.send('recovery:state',recovery.protect());win.webContents.send('engine:fault', message);} });
 }
 function trusted(event) {
   if (!win || win.isDestroyed() || event.sender.isDestroyed() || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== PAGE)
@@ -49,6 +54,9 @@ app.whenReady().then(async () => {
   projectsDirectory=process.argv.includes('--smoke-test') ? path.join(app.getPath('userData'),'Projects') : path.join(app.getPath('documents'),'Nodivu','Projetos');
   await fs.mkdir(projectsDirectory,{recursive:true});
   // Smoke runs must not replace the user's real recent-project history.
+  recovery=new (require('./project-recovery.cjs').ProjectRecovery)(path.join(app.getPath('userData'),demoMode?'demo-recovery':'recovery'));
+  await recovery.init();
+  async function clearCurrentRecovery(){try{await recovery.clear();return {};}catch(e){diagnostics.record('recovery.error',{message:e.message});return {warning:'Projeto salvo/aberto, mas a cópia antiga não foi removida: '+e.message};}}
   recentProjects=new RecentProjects(path.join(app.getPath('userData'),process.argv.includes('--smoke-test')?'smoke-'+process.pid:'','recent-projects.json'));
   async function rememberRecent(file) {
     try { return {recents:await recentProjects.remember(file)}; }
@@ -75,10 +83,10 @@ app.whenReady().then(async () => {
   win.on('close', event => {
     if (quitting) return;
     event.preventDefault();
-    if (confirmingClose) return;
+    if (confirmingClose || projectOperation) return;
     confirmingClose = true;
     void (async()=>{
-      if (!projectDirty || (await dialog.showMessageBox(win,{type:'question',message:'Fechar e descartar alterações não salvas?',buttons:['Continuar editando','Descartar e fechar'],defaultId:0,cancelId:0})).response===1) await shutdown();
+      if (!projectDirty || (await dialog.showMessageBox(win,{type:'question',message:'Fechar e descartar alterações não salvas?',buttons:['Continuar editando','Descartar e fechar'],defaultId:0,cancelId:0})).response===1) {await clearCurrentRecovery();await shutdown();}
       confirmingClose=false;
     })();
   });
@@ -154,6 +162,8 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('project:file', async (event, action, payload) => {
     trusted(event);
+    if(projectOperation||quitting)return {ok:false,error:{message:'Outra operação de projeto está em andamento.'}};
+    projectOperation=true;
     try {
       if (action === 'save') {
         const {project} = await engine.request('project.validate', payload);
@@ -161,7 +171,7 @@ app.whenReady().then(async () => {
         if (choice.canceled || !choice.filePath) return {ok:true,canceled:true};
         await writeProject(choice.filePath, resourcesForFile(project, choice.filePath, false));
         projectPath=choice.filePath; projectDirty=false;
-        return {ok:true,path:projectPath,...await rememberRecent(projectPath)};
+        return {ok:true,path:projectPath,...await rememberRecent(projectPath),...await clearCurrentRecovery(),recovery:recovery.status()};
       }
       if(action==='folder'){const error=await shell.openPath(projectsDirectory);if(error)throw new Error(error);return {ok:true};}
       if (!['open','open-recent'].includes(action)) throw new Error('Ação de projeto inválida.');
@@ -177,14 +187,45 @@ app.whenReady().then(async () => {
       const {project}=await engine.request('project.validate',{contents,expected_revision:payload.expected_revision});
       const result=await engine.request('project.open',{contents:JSON.stringify(resourcesForFile(project,file,true)),expected_revision:payload.expected_revision});
       projectPath=file; projectDirty=false;
-      return {ok:true,path:file,...result,...await rememberRecent(file)};
+      return {ok:true,path:file,...result,...await rememberRecent(file),...await clearCurrentRecovery(),recovery:recovery.status()};
     } catch(error) {return {ok:false,error:{message:error.message,code:error.code}};}
+    finally {projectOperation=false;}
+  });
+  ipcMain.handle('project:recovery',async(event,action,payload={})=>{
+    trusted(event);
+    if(action==='status')return {ok:true,recovery:recovery.status()};
+    if(projectOperation||quitting)return {ok:false,error:{message:'Outra operação de projeto está em andamento.'}};
+    projectOperation=true;
+    try {
+      if(action==='save'){
+        if(recovery.pending)throw new Error('Resolva a recuperação anterior antes de salvar outra cópia.');
+        const {project}=await engine.request('project.validate',payload);
+        const absolute=resourcesForFile(project,projectPath||path.join(projectsDirectory,'Projeto.nodivu.json'),true);
+        await recovery.save(absolute);
+      }else if(action==='clean'){
+        if(projectDirty)throw new Error('Há alterações não salvas; a cópia foi preservada.');
+        await recovery.clear();
+      }else if(action==='discard'){
+        const choice=await dialog.showMessageBox(win,{type:'question',message:'Descartar a cópia de recuperação?',detail:'O projeto aberto e os arquivos salvos não serão alterados.',buttons:['Cancelar','Descartar cópia'],defaultId:0,cancelId:0});
+        if(choice.response!==1)return {ok:true,canceled:true,recovery:recovery.status()};
+        await recovery.clear(true);
+      }else if(action==='restore'){
+        if(projectDirty&&(await dialog.showMessageBox(win,{type:'question',message:'Restaurar a cópia e descartar as alterações abertas?',buttons:['Cancelar','Restaurar cópia'],defaultId:0,cancelId:0})).response!==1)return {ok:true,canceled:true};
+        const contents=await recovery.read();
+        const result=await engine.request('project.open',{contents,expected_revision:payload.expected_revision});
+        recovery.accept();projectPath=null;projectDirty=true;
+        return {ok:true,path:null,...result,recovery:recovery.status()};
+      }else throw new Error('Ação de recuperação inválida.');
+      return {ok:true,recovery:recovery.status()};
+    }catch(error){diagnostics.record('recovery.error',{message:error.message});return {ok:false,recovery:recovery.status(),error:{message:error.message,code:error.code}};}
+    finally{projectOperation=false;}
   });
   ipcMain.handle('plugin:choose-file',async event=>{trusted(event);const result=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Áudio · MP3, WAV, M4A',extensions:['mp3','wav','m4a']}]});return result.canceled?null:result.filePaths[0];});
   ipcMain.handle('engine:restart', async event => { trusted(event); await engine.stop(); startEngine(); });
   await win.loadURL(PAGE);
   if(process.argv.includes('--devtools'))win.webContents.openDevTools({mode:'detach'});
   if(updateTest){await require('./smoke-update.cjs')(win,updates);return;}
+  if(recoveryTest){try{await require('./smoke-recovery.cjs')(win,recovery,engine);}catch(error){console.error(error);exitCode=1;}await shutdown();return;}
   if (process.argv.includes('--smoke-test')) {
     try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-virtual-cable.cjs')(win); if(process.argv.includes('--test-monitor'))await require('./smoke-monitor.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
     catch (error) { console.error(error); exitCode = 1; }

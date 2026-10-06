@@ -14,6 +14,7 @@ let snapshot=null,devices=[],online=false,busy=false,polling=null,minimized=fals
 let deviceIssue='',monitorListStamp='';
 const positions=new Map(),views=new Map(),pending=new Map(),resources=new Map(),playerErrors=new Map();let editTimer;
 let savedStamp=null,projectPath='',lastDirty=null;
+let recoveryState=null,recoveryStamp='',recoveryError='';
 const camera=createViewport({viewport:$('viewport'),canvas:$('canvas'),onChange:()=>{draw();updateDirty();},bounds:()=>{
  if(!positions.size)return null;
  const items=[...positions].map(([id,p])=>({left:p.x-16,top:p.y-16,right:p.x+(views.get(id)?.root.offsetWidth||300)+16,bottom:p.y+(views.get(id)?.root.offsetHeight||350)+16}));
@@ -46,14 +47,7 @@ function renderRecents(files){
  const select=$('project-recents');select.replaceChildren(new Option('Recentes…',''));
  for(const file of files){const option=new Option(file.split(/[\\/]/).pop(),file);option.title=file;select.add(option);}
 }
-function projectAction(action,recentPath){void perform(async()=>{
- requireSession();
- await settleEdits();
- const result=await window.nodivu.projectFile(action,{expected_revision:snapshot.revision,...(action==='save'?{contents:JSON.stringify(projectDocument())}:action==='open-recent'?{path:recentPath}:{})});
- if(!result.ok){const e=new Error(result.error.message);e.code=result.error.code;throw e;}
- if(result.canceled)return;
- projectPath=result.path;
- if(action==='open'||action==='open-recent'){
+async function restoreDocument(result){
   armed=null;drag=null;resources.clear();playerErrors.clear();positions.clear();
   for(const view of views.values())view.root.remove();views.clear();edgeStamp='';
   for(const p of result.project.positions)positions.set(p.node_id,{x:p.x,y:p.y});
@@ -63,7 +57,16 @@ function projectAction(action,recentPath){void perform(async()=>{
   // Opening in the product resumes the validated session immediately. The API's
   // suspended transition only separates document replacement from device setup.
   try{await activateAudio();}catch(e){message='Não foi possível preparar o áudio: '+e.message;}
- }
+}
+function projectAction(action,recentPath){void perform(async()=>{
+ requireSession();
+ await settleEdits();
+ const result=await window.nodivu.projectFile(action,{expected_revision:snapshot.revision,...(action==='save'?{contents:JSON.stringify(projectDocument())}:action==='open-recent'?{path:recentPath}:{})});
+ if(!result.ok){const e=new Error(result.error.message);e.code=result.error.code;throw e;}
+ if(result.canceled)return;
+ projectPath=result.path;
+ if(action==='open'||action==='open-recent')await restoreDocument(result);
+ if(result.recovery)recoveryState=result.recovery;recoveryStamp='';recoveryError='';
  if(result.recents)renderRecents(result.recents);message=[message,result.warning].filter(Boolean).join(' ');
  savedStamp=JSON.stringify(projectDocument());updateDirty();
 });}
@@ -179,7 +182,7 @@ function render(){
  $('project-recents').disabled=!online||busy||$('project-recents').options.length<2;
  const cable=cableInventory(devices);$('cable-status').textContent=cable.message;$('cable-setup').dataset.state=cable.state;$('cable-route').textContent=cableRouteMessage(snapshot,devices);$('virtual-output').disabled=!online||busy;
  $('reconnect').hidden=online;for(const id of['mute-all','refresh','retry','quick-start','project-save','project-open'])$(id).disabled=!online||busy;$('reconnect').disabled=busy;document.body.dataset.ready=String(online);document.body.dataset.busy=String(busy);
- renderAudio();renderMonitor();
+ renderAudio();renderMonitor();renderRecovery();
  // Disable palette actions even before the first valid snapshot exists.
  for(const b of $('palette').querySelectorAll('button'))if(!snapshot||!online||busy)b.disabled=true;
  if(!snapshot){$('status').textContent=busy?'Conectando…':'Backend indisponível';$('error').textContent=message;$('error').hidden=!message;return;}
@@ -278,3 +281,47 @@ function renderMonitor(){
 }
 $('monitor-device').onchange=renderMonitor;
 $('monitor-toggle').onclick=()=>void perform(async()=>{await settleEdits();apply(await api('audio.monitor',{endpoint_id:snapshot?.monitor?.endpoint_id?null:$('monitor-device').value}));});
+
+function renderRecovery(){
+ const pending=recoveryState?.pending;
+ $('recovery-actions').hidden=!pending;
+ $('recovery-banner').hidden=!pending;
+ $('recovery-quick-restore').disabled=busy||!online;
+ $('recovery-restore').disabled=busy||!online;
+ $('recovery-discard').disabled=busy;
+ $('recovery-panel').dataset.pending=String(Boolean(pending));
+ const date=recoveryState?.savedAt?new Date(recoveryState.savedAt).toLocaleString('pt-BR'):'';
+ $('recovery-status').textContent=recoveryError||recoveryState?.error||(pending?`Há uma cópia de ${date}. Restaure ou descarte antes de criar outra cópia.`:recoveryState?.available?`Cópia automática: ${date}. Use Salvar para guardar seu projeto.`:'Alterações são copiadas a cada 5 segundos. Não substitui Salvar.');
+}
+async function saveRecovery(){
+ if(!online||busy||pending.size||!snapshot||recoveryState===null||recoveryState.pending)return;
+ const contents=JSON.stringify(projectDocument());
+ const clean=contents===savedStamp;
+ if(clean?!recoveryState.available:contents===recoveryStamp)return;
+ const previousMessage=message;
+ await perform(async()=>{
+   message=previousMessage;
+   const result=await window.nodivu.recovery(clean?'clean':'save',{contents,expected_revision:snapshot.revision});
+   if(result.recovery)recoveryState=result.recovery;
+   if(result.ok){recoveryStamp=clean?'':contents;recoveryError='';}
+   else {recoveryError='Não foi possível criar a cópia automática: '+result.error.message;}
+ });
+}
+setInterval(()=>void saveRecovery().catch(e=>{recoveryError=e.message;renderRecovery();}),5000);
+window.nodivu.onRecovery(state=>{recoveryState=state;recoveryStamp='';renderRecovery();});
+window.nodivu.recovery('status').then(result=>{if(result.ok)recoveryState=result.recovery;else recoveryError=result.error.message;renderRecovery();}).catch(e=>{recoveryError=e.message;renderRecovery();});
+$('recovery-restore').onclick=()=>void perform(async()=>{
+ await settleEdits();
+ const result=await window.nodivu.recovery('restore',{expected_revision:snapshot.revision});
+ if(!result.ok){recoveryError='A cópia foi preservada: '+result.error.message;throw new Error(result.error.message);}
+ if(result.canceled)return;
+ projectPath='';recoveryState=result.recovery;await restoreDocument(result);
+ recoveryError='';recoveryStamp='';savedStamp='';updateDirty();
+});
+$('recovery-discard').onclick=()=>void perform(async()=>{
+ const result=await window.nodivu.recovery('discard');
+ if(!result.ok){recoveryError=result.error.message;throw new Error(result.error.message);}
+ if(result.recovery)recoveryState=result.recovery;if(!result.canceled){recoveryError='';recoveryStamp='';}
+});
+
+$('recovery-quick-restore').onclick=()=>$('recovery-restore').click();

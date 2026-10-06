@@ -126,6 +126,16 @@ third_party/clap-1.2.2/    Cabeçalhos e licença do contrato CLAP
 
 `Cargo.lock` e `package-lock.json` fazem parte do código versionado. `target/`, `.local/`, `.tools/` e `node_modules/` são gerados. Esta árvore não inclui Qt, o CLI interativo antigo, documentos internos de planejamento, binários do instalador, drivers, perfis pessoais ou projetos salvos.
 
+### Recuperação automática de projetos (desenvolvimento)
+
+Enquanto há alterações não salvas, o app guarda uma cópia local aproximadamente a cada cinco segundos, depois de aplicar as edições pendentes. Se o Nodivu fechar inesperadamente, a próxima abertura mostra **Projeto não salvo encontrado → Restaurar cópia**. A restauração depende desse clique: não abre nem começa a tocar um projeto automaticamente na inicialização.
+
+A cópia preserva blocos, fios, posições, zoom e referências dos arquivos de áudio. O arquivo original não é sobrescrito. Depois de restaurar, o projeto aparece como não salvo; use **Salvar…** para escolher onde guardá-lo. A restauração prepara o áudio como a abertura normal, mas não inicia o Play de arquivos. A posição de reprodução, PCM, medidores e escuta local não fazem parte da cópia.
+
+Existe uma cópia por perfil, em `%APPDATA%\Nodivu\recovery\recovery.nodivu.json` no app instalado (no desenvolvimento: `.local/electron-profile/recovery`). Uma cópia anterior fica protegida até ser restaurada ou descartada explicitamente. Salvar o projeto ou confirmar o descarte ao fechar remove a cópia da sessão atual; cancelar preserva tudo. Falha do backend também oferece a cópia após reconectar. Erros de escrita ficam visíveis no painel Recuperação e nos logs; cópias inválidas são preservadas para diagnóstico.
+
+É uma proteção complementar: os últimos segundos ainda podem se perder e uma falha de disco pode impedir gravar a cópia. Continue usando Salvar. A demonstração de frontend mantém suas cópias em uma pasta separada. Esta funcionalidade está somente no desenvolvimento, fora do release 0.1.3-beta.1. Para repetir o ensaio real de encerramento abrupto e restauração, depois de montar o app execute `./scripts/Test-Recovery.ps1`; o ensaio usa um perfil temporário próprio.
+
 ### Escutar a saída final nos fones (desenvolvimento)
 
 No painel **Escuta local → Ouvir minha saída**, selecione seus fones e clique em **Ligar escuta**. Mantenha **CABLE Input** na saída principal para enviar o mesmo mix aos outros apps. Ganhos, plugins, players, Mixer e Silenciar tudo já fazem parte do áudio copiado. Desligar a escuta libera apenas os fones; o cabo continua recebendo áudio. A saída principal não pode ser escolhida como escuta.
@@ -188,7 +198,7 @@ O smoke verifica a interface e sua integração com o backend; sem `-Audio`, nã
 
 ## Limites atuais e contribuições
 
-Ainda faltam validação ampla em outros PCs, estabilidade prolongada e medição de latência ponta a ponta. O modo global de captura precisa de mais testes de exclusão. Recuperação automática de projetos, undo/redo e um SDK de plugins mais completo são próximos passos; não são promessas de funcionalidades já disponíveis.
+Ainda faltam validação ampla em outros PCs, estabilidade prolongada e medição de latência ponta a ponta. O modo global de captura precisa de mais testes de exclusão. Undo/redo e um SDK de plugins mais completo são próximos passos; não são promessas de funcionalidades já disponíveis.
 
 ### Atualizações e releases
 

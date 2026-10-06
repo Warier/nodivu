@@ -88,5 +88,6 @@ export function createViewport({viewport, canvas, onChange, bounds}) {
     y += (viewport.clientHeight - previousHeight) / 2;
     previousWidth = viewport.clientWidth; previousHeight = viewport.clientHeight; paint();
   }).observe(viewport);
-  return {world, fit, save:()=>({x,y,scale}), restore:state=>{({x,y,scale}=state);paint();}, get scale() {return scale;}};
+  // A restored camera already targets the current layout; do not apply a pending resize twice.
+  return {world, fit, save:()=>({x,y,scale}), restore:state=>{previousWidth=viewport.clientWidth;previousHeight=viewport.clientHeight;({x,y,scale}=state);paint();}, get scale() {return scale;}};
 }
