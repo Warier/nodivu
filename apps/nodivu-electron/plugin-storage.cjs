@@ -8,7 +8,7 @@ async function preparePlugins(bundled, destination) {
   for (const entry of await fs.readdir(bundled,{withFileTypes:true})) {
     if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) continue;
     const source=path.join(bundled,entry.name), target=path.join(destination,entry.name);
-    const managed=entry.isDirectory() && ['mp3','windows-audio'].includes(entry.name);
+    const managed=entry.isDirectory() && ['mp3','windows-audio','voice-cleanup','peak-limiter'].includes(entry.name) && !await fs.lstat(path.join(target,'.nodivu-managed')).then(()=>true,()=>false);
     // Preserve edits to external packages in userData. Do not follow symlinks.
     if (!managed && await fs.stat(target).then(()=>true,()=>false)) continue;
     await fs.cp(source,target,{recursive:true,force:managed,dereference:false,

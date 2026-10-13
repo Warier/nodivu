@@ -22,5 +22,10 @@ try {
         New-Item -ItemType Directory -Force -Path $destination | Out-Null
         Copy-Item -LiteralPath "$stage/nodivu-mp3.clap" -Destination $destination
         Copy-Item -LiteralPath "$nodivuRoot/plugins/mp3-player/plugin.json" -Destination $destination
+        foreach ($asset in @('nodivu-package.json','README.md')) {
+            Copy-Item -LiteralPath "$nodivuRoot/plugins/mp3-player/$asset" -Destination "$destination/$asset"
+        }
+        Copy-Item -LiteralPath "$nodivuRoot/LICENSE" -Destination "$destination/LICENSE"
+        Copy-Item -LiteralPath "$nodivuRoot/third_party/clap-1.2.2/LICENSE" -Destination "$destination/CLAP-LICENSE"
     }
 } finally { Pop-Location }

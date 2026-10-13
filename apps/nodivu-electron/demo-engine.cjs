@@ -26,7 +26,7 @@ class DemoEngine extends EventEmitter {
    case 'node.add':{
     const defaults={capture:{endpoint_id:null},output:{endpoint_id:null},gain:{gain_db:0,bypass:false},tone:{enabled:true},mixer:{},meter:{}};
     let block={kind:p.kind,...defaults[p.kind]};
-    if(p.kind==='plugin'){const plugin=catalog.plugins.find(c=>c.id===p.plugin_id);if(!plugin)throw new Error('Plugin indisponível na demonstração.');block={kind:'plugin',plugin_id:p.plugin_id,source:plugin.source,consumer:plugin.consumer,parameters:{},bypass:false};}
+    if(p.kind==='plugin'){const plugin=catalog.plugins.find(c=>c.id===p.plugin_id);if(!plugin)throw new Error('Plugin indisponível na demonstração.');block={kind:'plugin',plugin_id:p.plugin_id,source:plugin.source,consumer:plugin.consumer,parameters:Object.fromEntries(plugin.parameters.map(p=>[p.id,p.default])),bypass:false};}
     const graph=copy(this.graph);graph.nodes.push({id:randomUUID(),block});this.checkGraph(graph);this.graph=graph;this.revision++;return this.snapshot();
    }
    case 'graph.apply':this.checkGraph(p.graph);this.graph=copy(p.graph);for(const id of Object.keys(this.states))if(!this.graph.nodes.some(n=>n.id===id))delete this.states[id];this.revision++;return this.snapshot();

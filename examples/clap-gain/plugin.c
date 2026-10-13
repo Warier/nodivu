@@ -7,7 +7,7 @@
 #ifndef GAIN_SCALE
 #define GAIN_SCALE 0.5f
 #endif
-enum { GAIN, SEPARATE, SOURCE, INIT_FAIL, ACTIVATE_FAIL, START_FAIL, PROCESS_FAIL, NAN_OUTPUT, MONO, RESTART, CONSUMER, TYPE_COUNT };
+enum { GAIN, SEPARATE, SOURCE, INIT_FAIL, ACTIVATE_FAIL, START_FAIL, PROCESS_FAIL, NAN_OUTPUT, MONO, RESTART, CONSUMER, DELAY, SEPARATE_DELAY, HUGE_DELAY, TYPE_COUNT };
 static const char *const features[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL};
 #define DESC(id, name) {CLAP_VERSION_INIT, id, name, "Nodivu test", "", "", "", "0.1.0", "Fixture offline", features}
 static const clap_plugin_descriptor_t descriptors[TYPE_COUNT] = {
@@ -21,7 +21,10 @@ static const clap_plugin_descriptor_t descriptors[TYPE_COUNT] = {
     DESC("org.nodivu.fixture.nan", "NaN deliberado"),
     DESC("org.nodivu.fixture.mono", "Formato fora do perfil"),
     DESC("org.nodivu.fixture.restart", "Solicita reativação"),
-    DESC("org.nodivu.fixture.consumer", "Consumidor C")
+    DESC("org.nodivu.fixture.consumer", "Consumidor C"),
+    DESC("org.nodivu.fixture.delay", "Atraso 37"),
+    DESC("org.nodivu.fixture.separate-delay", "Atraso 960 sem in-place"),
+    DESC("org.nodivu.fixture.huge-delay", "Latência fora do limite")
 };
 typedef struct {
     clap_plugin_t plugin;
@@ -30,6 +33,8 @@ typedef struct {
     int kind;
     bool initialized, active, processing;
     double gain;
+    float delay[2][960];
+    uint32_t cursor;
 } Instance;
 static Instance *state(const clap_plugin_t *p) { return (Instance *)p->plugin_data; }
 static void main_thread(Instance *s) { assert(s->threads && s->threads->is_main_thread(s->host)); assert(!s->threads->is_audio_thread(s->host)); }
@@ -63,7 +68,7 @@ static bool CLAP_ABI start(const clap_plugin_t *p) {
 static void CLAP_ABI stop(const clap_plugin_t *p) {
     Instance *s = state(p); audio_thread(s); assert(s->processing); s->processing = false;
 }
-static void CLAP_ABI reset(const clap_plugin_t *p) { audio_thread(state(p)); }
+static void CLAP_ABI reset(const clap_plugin_t *p) { Instance *s=state(p); audio_thread(s); memset(s->delay,0,sizeof(s->delay)); s->cursor=0; }
 static void CLAP_ABI on_main(const clap_plugin_t *p) {
     Instance *s = state(p); main_thread(s);
 }
@@ -80,7 +85,7 @@ static clap_process_status CLAP_ABI process(const clap_plugin_t *p, const clap_p
     if (s->kind == PROCESS_FAIL) return CLAP_PROCESS_ERROR;
     uint32_t event = 0, count = audio->in_events->size(audio->in_events);
     assert(count <= 32 && audio->in_events->get(audio->in_events, count) == NULL);
-    if (s->kind == SEPARATE) assert(audio->audio_inputs[0].data32[0] != audio->audio_outputs[0].data32[0]);
+    if (s->kind == SEPARATE || s->kind == SEPARATE_DELAY) assert(audio->audio_inputs[0].data32[0] != audio->audio_outputs[0].data32[0]);
     for (uint32_t i = 0; i < audio->frames_count; ++i) {
         while (event < count) {
             const clap_event_header_t *header = audio->in_events->get(audio->in_events, event);
@@ -92,8 +97,12 @@ static clap_process_status CLAP_ABI process(const clap_plugin_t *p, const clap_p
         }
         for (uint32_t c = 0; c < 2; ++c) {
             float input = s->kind == SOURCE ? 1.0f : audio->audio_inputs[0].data32[c][i];
+            if (s->kind == DELAY || s->kind == SEPARATE_DELAY) {
+                float delayed=s->delay[c][s->cursor]; s->delay[c][s->cursor]=input; input=delayed;
+            }
             audio->audio_outputs[0].data32[c][i] = s->kind == NAN_OUTPUT ? NAN : input * (float)s->gain * GAIN_SCALE;
         }
+        if (s->kind == DELAY || s->kind == SEPARATE_DELAY) s->cursor=(s->cursor+1)%(s->kind==DELAY?37:960);
     }
     if (s->kind == RESTART) s->host->request_restart(s->host);
     s->host->request_callback(s->host);
@@ -108,7 +117,7 @@ static bool CLAP_ABI port_info(const clap_plugin_t *p, uint32_t index, bool inpu
     memset(info, 0, sizeof(*info)); info->id = input ? 10 : 20;
     strcpy_s(info->name, sizeof(info->name), "Audio"); info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = s->kind == MONO ? 1 : 2; info->port_type = CLAP_PORT_STEREO;
-    info->in_place_pair = s->kind == SEPARATE || s->kind == SOURCE || s->kind == CONSUMER ? CLAP_INVALID_ID : (input ? 20 : 10);
+    info->in_place_pair = s->kind == SEPARATE || s->kind == SEPARATE_DELAY || s->kind == SOURCE || s->kind == CONSUMER ? CLAP_INVALID_ID : (input ? 20 : 10);
     return true;
 }
 static const clap_plugin_audio_ports_t ports = {port_count, port_info};
@@ -131,7 +140,7 @@ static void CLAP_ABI flush(const clap_plugin_t *p, const clap_input_events_t *in
     (void)p; (void)in; (void)out;
 }
 static const clap_plugin_params_t params = {param_count, param_info, param_value, value_text, text_value, flush};
-static uint32_t CLAP_ABI latency(const clap_plugin_t *p) { main_thread(state(p)); assert(state(p)->active); return 0; }
+static uint32_t CLAP_ABI latency(const clap_plugin_t *p) { main_thread(state(p)); assert(state(p)->active); return state(p)->kind == DELAY ? 37 : state(p)->kind == SEPARATE_DELAY ? 960 : state(p)->kind == HUGE_DELAY ? 48001 : 0; }
 static const clap_plugin_latency_t latency_ext = {latency};
 static const void *CLAP_ABI get_extension(const clap_plugin_t *p, const char *id) {
     assert(state(p)->initialized);

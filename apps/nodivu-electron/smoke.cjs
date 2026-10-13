@@ -28,7 +28,7 @@ module.exports = async function smoke(win, audio) {
  await click('#mute-all');if(audio)await until('document.body.dataset.signal === "0"','mute não aplicado');await click('#mute-all');
  // Context menu nativo sobre o meio do fio ganho -> saída, fora dos blocos.
  const mid=await run(`{const p=document.querySelectorAll('.wire')[1];const point=p.getPointAtLength(p.getTotalLength()/2);const r=document.getElementById('wires').getBoundingClientRect();({x:Math.round(r.left+point.x*r.width/parseFloat(document.getElementById('canvas').style.width)),y:Math.round(r.top+point.y*r.height/parseFloat(document.getElementById('canvas').style.height))})}`);
- win.webContents.sendInputEvent({type:'mouseDown',button:'right',...mid,clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',button:'right',...mid,clickCount:1});await count('.wire',1);await idle();
+ win.webContents.sendInputEvent({type:'mouseDown',button:'right',...mid,clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',button:'right',...mid,clickCount:1});await until("!document.getElementById('wire-menu').hidden",'menu de conexão');await click('#wire-delete');await count('.wire',1);await idle();
  assert.equal(await run('document.body.dataset.generation'),generation,'Excluir fio reabriu dispositivo');
  await wire('gain','output');await count('.wire',2);
  await click('#connections .edge-remove');await count('.wire',1);

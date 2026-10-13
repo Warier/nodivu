@@ -96,7 +96,73 @@ mod run {
         }
         Ok(json!(reports))
     }
+    fn verify_delayed_bypass(path: &Path, scale: f32) -> Result<()> {
+        for (kind, latency) in [("delay", 37usize), ("separate-delay", 960usize)] {
+            let mut plugin = open(path, kind)?;
+            plugin.with_audio_worker(|processor| {
+                assert_eq!(processor.metadata().latency_frames, latency as u32);
+                let controls = EffectControls::prepare(processor.metadata())?;
+                let mut effect = LiveEffect::prepare(processor, &controls)?;
+                let mut elapsed = 0;
+                for (phase, length) in [(0, 2400usize), (1, 480), (2, 1200), (3, 480)] {
+                    controls.set_bypass(phase == 1 || phase == 2);
+                    let mut offset = 0;
+                    while offset < length {
+                        let frames = [1, 37, 128, 479][offset % 4].min(length - offset);
+                        let mut left = [0.0; 480];
+                        let mut right = [0.0; 480];
+                        for i in 0..frames {
+                            left[i] = (elapsed + i + 1) as f32 / 10000.0;
+                            right[i] = -left[i];
+                        }
+                        effect
+                            .process(StereoMut::new(&mut left[..frames], &mut right[..frames]))?;
+                        for i in 0..frames {
+                            let dry = if elapsed + i < latency {
+                                0.0
+                            } else {
+                                (elapsed + i + 1 - latency) as f32 / 10000.0
+                            };
+                            let progress = (offset + i + 1) as f32 / 480.0;
+                            let coefficient = match phase {
+                                0 => scale,
+                                1 => scale + (1.0 - scale) * progress,
+                                2 => 1.0,
+                                _ => 1.0 + (scale - 1.0) * progress,
+                            };
+                            assert!(
+                                (left[i] - dry * coefficient).abs() < 0.00002,
+                                "{kind} phase={phase} frame={} got={} want={}",
+                                elapsed + i,
+                                left[i],
+                                dry * coefficient
+                            );
+                            assert!((left[i] + right[i]).abs() < 0.00001);
+                        }
+                        elapsed += frames;
+                        offset += frames;
+                    }
+                }
+                effect.reset()?;
+                for _ in 0..5 {
+                    let mut l = [0.0; 480];
+                    let mut r = l;
+                    effect.process(StereoMut::new(&mut l, &mut r))?;
+                    assert!(l.iter().chain(&r).all(|v| *v == 0.0));
+                }
+                Ok(())
+            })?;
+        }
+        let mut huge = open(path, "huge-delay")?;
+        huge.with_audio_worker(|p| {
+            let controls = EffectControls::prepare(p.metadata())?;
+            assert!(LiveEffect::prepare(p, &controls).is_err());
+            Ok(())
+        })?;
+        Ok(())
+    }
     fn verify(path: &Path, scale: f32) -> Result<serde_json::Value> {
+        verify_delayed_bypass(path, scale)?;
         let live_effect = verify_live_effect(path, scale)?;
         let mut gain = ready(path, "gain")?;
         let mut other = ready(path, "gain")?;

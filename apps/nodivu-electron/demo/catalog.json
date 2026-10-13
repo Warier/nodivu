@@ -46,6 +46,84 @@
       ],
       "parameters": [],
       "source": true
+    },
+    {
+      "id": "org.nodivu.demo.controls",
+      "name": "Controles de exemplo",
+      "source": false,
+      "consumer": false,
+      "appearance": {
+        "title": "Controles de exemplo",
+        "description": "Demonstração visual de manifesto. Não processa áudio; disponível apenas no frontend-demo.",
+        "accent": "#e6aa68",
+        "layout": "grid",
+        "controls": [
+          {
+            "parameter": 7,
+            "label": "Intensidade",
+            "widget": "slider",
+            "unit": "×",
+            "group": "Sinal",
+            "page": "Som",
+            "quick": true,
+            "help": "Um controle rápido no bloco e a mesma configuração no painel."
+          },
+          {
+            "parameter": 8,
+            "label": "Modo",
+            "widget": "select",
+            "unit": "",
+            "group": "Comportamento",
+            "page": "Opções",
+            "options": [
+              {
+                "value": 0,
+                "label": "Natural"
+              },
+              {
+                "value": 1,
+                "label": "Suave"
+              }
+            ]
+          },
+          {
+            "parameter": 9,
+            "label": "Latência informada",
+            "widget": "number",
+            "unit": "ms",
+            "group": "Diagnóstico",
+            "page": "Som",
+            "advanced": true,
+            "help": "Exemplo somente leitura, sem DSP na demonstração."
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "id": 7,
+          "min": 0,
+          "max": 4,
+          "default": 1,
+          "readonly": false,
+          "stepped": false
+        },
+        {
+          "id": 8,
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "readonly": false,
+          "stepped": true
+        },
+        {
+          "id": 9,
+          "min": 0,
+          "max": 100,
+          "default": 20,
+          "readonly": true,
+          "stepped": false
+        }
+      ]
     }
   ]
 }

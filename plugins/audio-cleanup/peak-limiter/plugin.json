@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "library": "peak-limiter.clap",
+  "plugin_id": "org.nodivu.peak-limiter",
+  "title": "Limitador de picos",
+  "description": "Contém picos de ganho/Mixer com 5 ms de antecipação. Não recupera distorção gravada.",
+  "accent": "#66D3BA",
+  "layout": "stack",
+  "controls": [
+    {
+      "parameter": 0,
+      "label": "Teto",
+      "widget": "slider",
+      "unit": "dBFS",
+      "group": "Proteção",
+      "page": "Som",
+      "quick": true,
+      "help": "Nível máximo na saída deste bloco. Posicione após ganhos e Mixer."
+    },
+    {
+      "parameter": 1,
+      "label": "Retorno do ganho",
+      "widget": "slider",
+      "unit": "ms",
+      "group": "Dinâmica",
+      "page": "Som",
+      "help": "Tempo para recuperar o ganho após os picos."
+    }
+  ]
+}

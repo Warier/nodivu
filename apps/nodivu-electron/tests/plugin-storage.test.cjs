@@ -10,5 +10,7 @@ test('updates replace bundled plugins and preserve external user changes',async(
   await fs.writeFile(path.join(source,'mp3/plugin.json'),'v2');await preparePlugins(source,user);
   assert.equal(await fs.readFile(path.join(user,'external/plugin.json'),'utf8'),'user edit');
   assert.equal(await fs.readFile(path.join(user,'mp3/plugin.json'),'utf8'),'v2');
+  await fs.writeFile(path.join(user,'mp3/.nodivu-managed'),'');await fs.writeFile(path.join(user,'mp3/plugin.json'),'store v3');
+  await preparePlugins(source,user);assert.equal(await fs.readFile(path.join(user,'mp3/plugin.json'),'utf8'),'store v3');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });

@@ -40,7 +40,7 @@ export function mountCapture(content,id,{api,perform,configure,schedule}){
  schedule(update);
 }
 export function syncCapture(root,runtime,busy,online){
- const content=root.querySelector('.node-content'),v=views.get(content);if(!v)return;
+ const content=(root.matches('.node-content')?root:root.querySelector('.node-content')),v=views.get(content);if(!v)return;
  const selection=runtime?.capture_selection??null,state=runtime?.capture;
  const stamp=JSON.stringify([v.targets,selection,state?.process_id]);
  if(v.stamp!==stamp){

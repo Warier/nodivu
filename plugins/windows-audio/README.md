@@ -1,3 +1,21 @@
+# Áudio de aplicativos
+
+Escolha um aplicativo no inspetor e conecte o bloco a um Mixer ou à saída. Cada bloco pode capturar um aplicativo diferente. Navegadores incluem subprocessos, não abas isoladas.
+
+O programa original continua tocando: este bloco captura uma cópia. O modo global é experimental e sua exclusão sob áudio concorrente ainda precisa de validação adicional. O suporte depende da versão do Windows; validado localmente no Windows 10 22H2. Não precisa de GPU.
+
+## Instalação
+
+Este bloco acompanha o desenvolvimento do Nodivu. Pacotes compilados podem ser importados por pasta ou ZIP no gerenciador de plugins. Alterações entram em vigor ao fechar e abrir o app. Salve o projeto antes.
+
+A versão do pacote é independente da versão do aplicativo. Metadados locais não concedem selo oficial. Consumo ainda sem classificação medida.
+
+## Licença
+
+Código do plugin: MIT. Veja LICENSE incluída no pacote e os avisos do CLAP.
+
+## Referência de desenvolvimento
+
 # Fonte de áudio de processos — base em desenvolvimento
 
 Esta pasta contém aquisição nativa, fila/relógio, adapter CLAP e ensaios. O bloco já aparece no Electron. O contrato implementado está no header [capture_source.h](adapter/capture_source.h); a aquisição fica em [process_capture.h](capture/process_capture.h).

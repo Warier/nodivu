@@ -13,7 +13,7 @@ module.exports=async win=>{
   assert.deepEqual(after.graph,before.graph,'Atalho não deve trocar endpoint, fios ou duplicar saída');
   assert.equal(after.generation,before.generation);
   assert.equal(await run('document.getElementById("cable-setup").open'),true);
-  assert.equal(await run('document.activeElement.closest(".node")?.dataset.kind'),'output');
+  assert.equal(await run('document.activeElement.closest(".node-content")?.dataset.owner'),after.graph.nodes.find(n=>n.kind==='output').id);
   const state=await run('document.getElementById("cable-setup").dataset.state');
   assert.ok(['missing','incomplete','available'].includes(state));
   assert.ok(await run('document.getElementById("cable-status").textContent.length > 20'));

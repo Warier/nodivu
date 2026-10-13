@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "library": "voice-cleanup.clap",
+  "plugin_id": "org.nodivu.voice-cleanup",
+  "title": "Limpeza de voz",
+  "description": "Reduz ruído de microfone com RNNoise na CPU. 30 ms de atraso compensado.",
+  "accent": "#66D3BA",
+  "layout": "stack",
+  "controls": [
+    {
+      "parameter": 0,
+      "label": "Limpeza",
+      "widget": "slider",
+      "unit": "%",
+      "group": "Voz",
+      "page": "Som",
+      "quick": true,
+      "help": "Reduz ruído. Use em voz; música pode ser atenuada. Não recupera áudio já estourado."
+    }
+  ]
+}

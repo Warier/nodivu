@@ -1,5 +1,9 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const {EventEmitter}=require('node:events');
 const {Updates}=require('../updates.cjs');
+test('stable versions stay on published releases; prerelease clients retain their channel',()=>{
+ const stable=new EventEmitter(),beta=new EventEmitter();new Updates(stable,{version:'0.2.0'});new Updates(beta,{version:'0.1.3-beta.1'});
+ assert.equal(stable.allowPrerelease,false);assert.equal(beta.allowPrerelease,true);
+});
 test('updates require download and restart consent, including app quit, and serialize requests',async()=>{
   const u=new EventEmitter();let installs=0,downloads=0,checks=0,approve=false,release;
   u.checkForUpdates=async()=>{checks++;u.emit('checking-for-update');await new Promise(r=>release=r);u.emit('update-available',{version:'0.1.4-beta.1'});};

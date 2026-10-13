@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 
 type Result<T> = std::result::Result<T, Error>;
 const BYPASS_RAMP_FRAMES: usize = 480;
+/// Bound allocation and reset cost before accepting a native delay. 1 s at 48 kHz.
+pub const MAX_NATIVE_LATENCY_FRAMES: u32 = 48_000;
 
 #[derive(Clone, Copy, PartialEq)]
 struct ControlParameter {
@@ -114,6 +116,8 @@ pub struct LiveEffect<'a, 'plugin> {
     processor: &'a mut AudioProcessor<'plugin>,
     controls: &'a EffectControls,
     dry: [[f32; MAX_FRAMES]; 2],
+    dry_delay: Vec<[f32; 2]>,
+    delay_cursor: usize,
     last: [Option<u64>; MAX_EVENTS],
     wet: f32,
     target: f32,
@@ -122,15 +126,16 @@ pub struct LiveEffect<'a, 'plugin> {
     stats: LiveEffectStats,
 }
 impl<'a, 'plugin> LiveEffect<'a, 'plugin> {
-    /// Usar após activate/start, antes do loop. Bypass sem compensação exige latência zero.
+    /// Usar após activate/start, antes do loop. Delay storage is allocated only here.
     pub fn prepare(
         processor: &'a mut AudioProcessor<'plugin>,
         controls: &'a EffectControls,
     ) -> Result<Self> {
         let metadata = processor.metadata();
-        if metadata.latency_frames != 0 || metadata.id != controls.plugin_id {
+        if metadata.latency_frames > MAX_NATIVE_LATENCY_FRAMES || metadata.id != controls.plugin_id
+        {
             return Err(Error::Contract(
-                "Efeito/controles incompatíveis ou latência sem compensação",
+                "Efeito/controles incompatíveis ou latência maior que 48000 frames",
             ));
         }
         // Controles congelados precisam corresponder à especificação da instância ativada.
@@ -159,10 +164,17 @@ impl<'a, 'plugin> LiveEffect<'a, 'plugin> {
         } else {
             1.0
         };
+        let latency = if metadata.has_input && metadata.has_output {
+            metadata.latency_frames as usize
+        } else {
+            0
+        };
         Ok(Self {
             processor,
             controls,
             dry: [[0.0; MAX_FRAMES]; 2],
+            dry_delay: vec![[0.0; 2]; latency],
+            delay_cursor: 0,
             last: [None; MAX_EVENTS],
             wet,
             target: wet,
@@ -171,12 +183,17 @@ impl<'a, 'plugin> LiveEffect<'a, 'plugin> {
             stats: LiveEffectStats::default(),
         })
     }
+    pub fn latency_frames(&self) -> u32 {
+        self.processor.metadata().latency_frames
+    }
     pub fn stats(&self) -> LiveEffectStats {
         self.stats
     }
     pub fn reset(&mut self) -> Result<()> {
         self.processor.reset()?;
         self.last = [None; MAX_EVENTS];
+        self.dry_delay.fill([0.0; 2]);
+        self.delay_cursor = 0;
         self.wet = if self.controls.bypass.load(Relaxed) {
             0.0
         } else {
@@ -210,7 +227,7 @@ impl<'a, 'plugin> LiveEffect<'a, 'plugin> {
         }
         let separate = !self.processor.metadata().supports_in_place;
         let mix = self.remaining > 0 || self.wet < 1.0;
-        if separate || mix {
+        if separate || mix || !self.dry_delay.is_empty() {
             if self.processor.metadata().has_input {
                 self.dry[0][..frames].copy_from_slice(block.left);
                 self.dry[1][..frames].copy_from_slice(block.right);
@@ -257,6 +274,18 @@ impl<'a, 'plugin> LiveEffect<'a, 'plugin> {
             self.processor
                 .process_in_place(StereoMut::new(block.left, block.right), &events[..count])
         }?;
+        // Keep history even at 100% wet, so a live bypass never jumps ahead in time.
+        // Separate-input plugins have already consumed the current (undelayed) dry buffer.
+        if !self.dry_delay.is_empty() {
+            for i in 0..frames {
+                let original = [self.dry[0][i], self.dry[1][i]];
+                let delayed = self.dry_delay[self.delay_cursor];
+                self.dry_delay[self.delay_cursor] = original;
+                self.delay_cursor = (self.delay_cursor + 1) % self.dry_delay.len();
+                self.dry[0][i] = delayed[0];
+                self.dry[1][i] = delayed[1];
+            }
+        }
         self.last = values;
         self.stats.calls = self.stats.calls.saturating_add(1);
         self.stats.parameter_events = self.stats.parameter_events.saturating_add(count as u64);

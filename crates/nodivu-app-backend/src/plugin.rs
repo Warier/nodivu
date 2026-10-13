@@ -32,7 +32,7 @@ pub struct Appearance {
     pub layout: String,
     pub controls: Vec<Control>,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Control {
     pub parameter: u32,
@@ -40,6 +40,55 @@ pub struct Control {
     pub widget: String,
     pub unit: String,
     pub group: String,
+    /// Optional UI hints. They do not change CLAP parameter identity or audio execution.
+    #[serde(default)]
+    pub page: String,
+    #[serde(default)]
+    pub help: String,
+    #[serde(default)]
+    pub quick: bool,
+    #[serde(default)]
+    pub advanced: bool,
+    #[serde(default)]
+    pub options: Vec<ControlOption>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlOption {
+    pub value: f64,
+    pub label: String,
+}
+impl Control {
+    pub(crate) fn valid(&self) -> bool {
+        !self.label.is_empty()
+            && self.label.chars().count() <= 64
+            && self.unit.len() <= 16
+            && self.group.len() <= 64
+            && self.page.chars().count() <= 48
+            && self.help.chars().count() <= 320
+            && ["slider", "number", "toggle", "select"].contains(&self.widget.as_str())
+            && !(self.quick && self.advanced)
+            && if self.widget == "select" {
+                (2..=32).contains(&self.options.len())
+                    && self.options.iter().enumerate().all(|(i, o)| {
+                        o.value.is_finite()
+                            && !o.label.is_empty()
+                            && o.label.chars().count() <= 64
+                            && !self.options[..i]
+                                .iter()
+                                .any(|previous| previous.value == o.value)
+                    })
+            } else {
+                self.options.is_empty()
+            }
+    }
+    pub(crate) fn fits_parameter(&self, min: f64, max: f64, stepped: bool) -> bool {
+        (self.widget != "toggle" || (min == 0.0 && max == 1.0 && stepped))
+            && self
+                .options
+                .iter()
+                .all(|o| o.value >= min && o.value <= max && (!stepped || o.value.fract() == 0.0))
+    }
 }
 #[derive(Serialize)]
 struct Parameter {
@@ -55,6 +104,22 @@ pub struct Package {
     pub library: PathBuf,
 }
 impl Package {
+    pub fn validate_metadata(&self, metadata: &nodivu_clap_host::Metadata) -> Result<(), Error> {
+        EffectControls::prepare(metadata)?;
+        for c in &self.appearance.controls {
+            let p = metadata
+                .parameters
+                .iter()
+                .find(|p| p.id == c.parameter)
+                .ok_or(Error::Contract("Parâmetro visual ausente"))?;
+            if !c.fits_parameter(p.min, p.max, p.stepped) {
+                return Err(Error::Contract(
+                    "Controle visual incompatível com limites/tipo do parâmetro",
+                ));
+            }
+        }
+        Ok(())
+    }
     pub fn read(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let mut bytes = Vec::new();
         std::fs::File::open(path)?
@@ -74,16 +139,18 @@ impl Package {
             || !a.accent.starts_with('#')
             || !a.accent[1..].bytes().all(|v| v.is_ascii_hexdigit())
             || a.controls.len() > 32
+            || a.controls.iter().filter(|c| c.quick).count() > 3
+            || a.controls
+                .iter()
+                .map(|c| &c.page)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                > 8
         {
             return Err("Manifesto visual inválido".into());
         }
         for (i, c) in a.controls.iter().enumerate() {
-            if !bounded(&c.label, 64)
-                || c.unit.len() > 16
-                || c.group.len() > 64
-                || !["slider", "number", "toggle"].contains(&c.widget.as_str())
-                || a.controls[..i].iter().any(|x| x.parameter == c.parameter)
-            {
+            if !c.valid() || a.controls[..i].iter().any(|x| x.parameter == c.parameter) {
                 return Err("Controle visual inválido".into());
             }
         }
@@ -122,16 +189,14 @@ impl PluginBackend {
         let mut specs = Vec::new();
         for (i, package) in packages.iter().enumerate() {
             let metadata = owners[i * MAX_PLUGIN_NODES].metadata();
-            EffectControls::prepare(metadata)?;
-            for c in &package.appearance.controls {
-                let p = metadata
-                    .parameters
-                    .iter()
-                    .find(|p| p.id == c.parameter)
-                    .ok_or(Error::Contract("Parâmetro visual ausente"))?;
-                if c.widget == "toggle" && (p.min != 0.0 || p.max != 1.0 || !p.stepped) {
-                    return Err(Error::Contract("Toggle exige inteiro 0/1"));
-                }
+            package.validate_metadata(metadata)?;
+            if owners[i * MAX_PLUGIN_NODES..(i + 1) * MAX_PLUGIN_NODES]
+                .iter()
+                .any(|o| o.metadata().latency_frames != metadata.latency_frames)
+            {
+                return Err(Error::Contract(
+                    "Instâncias do mesmo plugin declararam latências diferentes",
+                ));
             }
             let parameters: Vec<_> = metadata
                 .parameters
@@ -156,7 +221,7 @@ impl PluginBackend {
             let file_transport = owners[i * MAX_PLUGIN_NODES]
                 .file_transport("status", None)
                 .is_ok();
-            catalog.push(json!({"capture_source":owners[i * MAX_PLUGIN_NODES].capture_snapshot().is_ok(),"file_transport":file_transport,"id":metadata.id,"name":metadata.name,"appearance":appearance,"parameters":parameters,"source":!metadata.has_input,"consumer":!metadata.has_output,"inputs":if metadata.has_input {vec![0]} else {vec![]},"outputs":if metadata.has_output {vec![0]} else {vec![]},"file_player":file_player}));
+            catalog.push(json!({"latency_frames":metadata.latency_frames,"capture_source":owners[i * MAX_PLUGIN_NODES].capture_snapshot().is_ok(),"file_transport":file_transport,"id":metadata.id,"name":metadata.name,"appearance":appearance,"parameters":parameters,"source":!metadata.has_input,"consumer":!metadata.has_output,"inputs":if metadata.has_input {vec![0]} else {vec![]},"outputs":if metadata.has_output {vec![0]} else {vec![]},"file_player":file_player}));
             specs.push((
                 metadata.id.clone(),
                 parameters,
@@ -673,7 +738,7 @@ pub fn worker(
                 .map_err(|_| Error::Contract("Reset da sessão worker falhou"))?;
         }
         for (index, effect) in effects.iter_mut().enumerate() {
-            if mailbox.capture.supports(index) {
+            if mailbox.capture.supports(index) || effect.latency_frames() > 0 {
                 effect.reset()?;
             }
         }
@@ -773,5 +838,48 @@ mod tests {
         assert!(mailbox.read_for(NodeId(uuid::Uuid::from_u128(8))).is_none());
         mailbox.sequence.store(1, SeqCst);
         assert!(mailbox.read_for(id).is_none());
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::Control;
+    use serde_json::json;
+    fn control(extra: serde_json::Value) -> Control {
+        let mut value =
+            json!({"parameter":7,"label":"Ganho","widget":"slider","unit":"×","group":"Sinal"});
+        for (key, item) in extra.as_object().unwrap() {
+            value[key] = item.clone();
+        }
+        serde_json::from_value(value).unwrap()
+    }
+    #[test]
+    fn old_manifests_keep_defaults_and_bounds() {
+        let c = control(json!({}));
+        assert!(c.valid());
+        assert!(c.page.is_empty());
+        assert!(!c.quick);
+        assert!(c.fits_parameter(0.0, 4.0, false));
+    }
+    #[test]
+    fn select_options_must_be_unique_bounded_and_match_parameter() {
+        let c = control(
+            json!({"widget":"select","options":[{"value":0.0,"label":"Off"},{"value":0.5,"label":"Half"}]}),
+        );
+        assert!(c.valid());
+        assert!(c.fits_parameter(0.0, 1.0, false));
+        assert!(!c.fits_parameter(0.0, 1.0, true));
+        assert!(!c.fits_parameter(0.0, 0.25, false));
+        assert!(!control(json!({"widget":"select","options":[{"value":0,"label":"A"},{"value":0,"label":"B"}]})).valid());
+        assert!(!control(json!({"widget":"select"})).valid());
+        assert!(!control(json!({"options":[{"value":1,"label":"A"}]})).valid());
+    }
+    #[test]
+    fn presentation_is_bounded_and_quick_never_hides_advanced() {
+        assert!(control(json!({"page":"Ajustes","help":"Texto, não HTML","quick":true})).valid());
+        assert!(!control(json!({"quick":true,"advanced":true})).valid());
+        assert!(!control(json!({"help":"x".repeat(321)})).valid());
+        assert!(!control(json!({"widget":"javascript"})).valid());
+        assert!(!control(json!({"widget":"toggle"})).fits_parameter(0.0, 4.0, false));
     }
 }

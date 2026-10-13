@@ -4,6 +4,9 @@
 !/.gitattributes
 !/.editorconfig
 !/README.md
+!/PLUGIN-UI.md
+!/PLUGIN-PACKAGE.md
+!/PLUGIN-STORE.md
 !/LICENSE
 !/THIRD-PARTY-NOTICES.md
 !/Cargo.toml

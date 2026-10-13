@@ -41,7 +41,7 @@ export function createViewport({viewport, canvas, onChange, bounds}) {
     pan = null; viewport.classList.remove('panning');
   }
   viewport.addEventListener('pointerdown', event => {
-    const blank = !event.target.closest('.node,.wire,#empty');
+    const blank = !event.target.closest('.node,.wire,.wire-hit,#empty');
     if (event.button !== 1 && !(event.button === 0 && (blank || (space && !editable(event.target))))) return;
     event.preventDefault(); event.stopPropagation();
     pan = {pointer:event.pointerId, clientX:event.clientX, clientY:event.clientY, x, y};
@@ -81,13 +81,8 @@ export function createViewport({viewport, canvas, onChange, bounds}) {
   document.getElementById('zoom-out').onclick = () => zoom(scale / 1.2);
   document.getElementById('zoom-reset').onclick = () => zoom(1);
   document.getElementById('fit-view').onclick = fit;
-  // Resize preserves the world point in the centre instead of jumping to the origin.
-  let previousWidth = viewport.clientWidth, previousHeight = viewport.clientHeight;
-  new ResizeObserver(() => {
-    x += (viewport.clientWidth - previousWidth) / 2;
-    y += (viewport.clientHeight - previousHeight) / 2;
-    previousWidth = viewport.clientWidth; previousHeight = viewport.clientHeight; paint();
-  }).observe(viewport);
-  // A restored camera already targets the current layout; do not apply a pending resize twice.
-  return {world, fit, save:()=>({x,y,scale}), restore:state=>{previousWidth=viewport.clientWidth;previousHeight=viewport.clientHeight;({x,y,scale}=state);paint();}, get scale() {return scale;}};
+  // Library/status/inspector layout changes are not camera edits. Preserve world
+  // coordinates, including the saved camera while asynchronous audio opens.
+  new ResizeObserver(() => paint()).observe(viewport);
+  return {world, fit, save:()=>({x,y,scale}), restore:state=>{({x,y,scale}=state);paint();}, get scale() {return scale;}};
 }

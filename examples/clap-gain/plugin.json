@@ -7,6 +7,6 @@
   "accent": "#e6aa68",
   "layout": "grid",
   "controls": [
-    {"parameter": 7, "label": "Intensidade", "widget": "slider", "unit": "×", "group": "Seu sinal"}
+    {"parameter": 7, "label": "Intensidade", "widget": "slider", "unit": "×", "group": "Seu sinal", "page": "Som", "quick": true, "help": "1× mantém o nível relativo do plugin; 0,5× reduz sua amplitude pela metade. Cada instância é independente."}
   ]
 }

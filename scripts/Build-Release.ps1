@@ -22,5 +22,9 @@ try {
     if($LASTEXITCODE){throw 'Build NSIS falhou'}
     New-Item -ItemType Directory -Force .local/releases | Out-Null
     Get-ChildItem -LiteralPath $stageOutput -File | Where-Object {$_.Extension -in '.exe','.yml','.blockmap'} | Copy-Item -Destination .local/releases
+    # Older beta clients may still request beta.yml from the new stable release.
+    if(Test-Path -LiteralPath '.local/releases/latest.yml') {
+        Copy-Item -LiteralPath '.local/releases/latest.yml' -Destination '.local/releases/beta.yml' -Force
+    }
     Get-ChildItem .local/releases -File | Where-Object {$_.Extension -in '.exe','.yml','.blockmap'} | Select-Object Name,Length
 } finally {Pop-Location}

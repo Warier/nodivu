@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "plugin_id": "org.nodivu.voice-cleanup",
+  "version": "1.0.0",
+  "author": "Nodivu contributors",
+  "host_api": 1,
+  "platform": "win32-x64",
+  "repository": "https://github.com/Warier/nodivu",
+  "resource_tier": "light",
+  "license": "MIT AND BSD-3-Clause"
+}

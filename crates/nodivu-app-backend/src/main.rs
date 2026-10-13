@@ -9,6 +9,8 @@ use std::process::ExitCode;
 #[cfg(windows)]
 mod plugin;
 #[cfg(windows)]
+mod plugin_loader;
+#[cfg(windows)]
 mod python_worker;
 
 fn main() -> ExitCode {
@@ -26,69 +28,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(path) = std::env::var_os("NODIVU_PLUGIN_MANIFEST") {
         let path = std::path::Path::new(&path);
         let scanning = std::env::var_os("NODIVU_SCAN_PLUGINS").is_some();
-        let mut packages = if path.is_file() {
-            vec![plugin::Package::read(path)?]
-        } else if scanning {
-            Vec::new()
-        } else {
-            return Err("Manifesto explícito ausente".into());
-        };
-        let mut workers = Vec::new();
-        // Explicit root manifest plus one-level child packages; deterministic and bounded.
-        if scanning {
-            let mut paths = std::fs::read_dir(path.parent().ok_or("Pasta ausente")?)?
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .map(|e| e.path().join("plugin.json"))
-                .filter(|p| p.is_file())
-                .collect::<Vec<_>>();
-            paths.sort();
-            if paths.len() + packages.len() > 8 {
-                return Err("Até oito tipos de plugin".into());
-            }
-            for path in paths {
-                packages.push(plugin::Package::read(&path)?);
-            }
-            let mut paths = std::fs::read_dir(path.parent().ok_or("Pasta ausente")?)?
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .map(|e| e.path().join("worker.json"))
-                .filter(|p| p.is_file())
-                .collect::<Vec<_>>();
-            paths.sort();
-            if paths.len() + packages.len() > 8 {
-                return Err("Até oito tipos de plugin/worker".into());
-            }
-            for path in paths {
-                workers.push(python_worker::Package::read(&path)?);
-            }
-        }
-        let mut owners = Vec::new();
-        let mut ids = std::collections::BTreeSet::new();
-        for package in &packages {
-            if !ids.insert(&package.appearance.plugin_id) {
-                return Err("ID de plugin duplicado".into());
-            }
-            // SAFETY: trusted local module, main-thread owners, scoped join before unload.
-            let owner = unsafe {
-                nodivu_clap_host::OfflinePlugin::load(
-                    &package.library,
-                    &package.appearance.plugin_id,
-                )
-            }?;
-            for _ in 1..nodivu_core::graph::MAX_PLUGIN_NODES {
-                owners.push(owner.new_instance()?);
-            }
-            owners.push(owner);
-        }
-        for worker in &workers {
-            if !ids.insert(&worker.plugin_id) {
-                return Err("ID de plugin/worker duplicado".into());
-            }
-        }
-        let (backend, receive, controls) =
-            plugin::PluginBackend::prepare(&packages, &owners, &workers)?;
+        let plugin_loader::Loaded {
+            packages,
+            mut owners,
+            workers,
+        } = plugin_loader::load(path, scanning)?;
         if owners.is_empty() {
+            let (backend, receive, controls) =
+                plugin::PluginBackend::prepare(&packages, &owners, &workers)?;
             // Python-only packages need no dummy CLAP module. Scope joins before controls drop.
             return std::thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
                 let worker = std::thread::Builder::new()
@@ -109,10 +56,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(result?)
             });
         }
+        let (startup_send, startup_receive) =
+            std::sync::mpsc::sync_channel::<(_, std::sync::Arc<plugin::PluginControls>)>(1);
         let (_, result) = nodivu_clap_host::OfflinePlugin::with_audio_group(
             &mut owners,
-            |processor| plugin::worker(processor, receive, &controls),
-            |owners| {
+            move |processor| {
+                // Startup handshake only, before audio/device processing. A failed prepare drops
+                // the sender, so the scoped worker can exit rather than hang during shutdown.
+                let Ok((receive, controls)) = startup_receive.recv() else {
+                    return Ok(());
+                };
+                plugin::worker(processor, receive, &controls)
+            },
+            move |owners| -> Result<(), Box<dyn std::error::Error>> {
+                // CLAP latency is authoritative only after activate, including every clone.
+                let (backend, receive, controls) =
+                    plugin::PluginBackend::prepare(&packages, owners, &workers)?;
+                startup_send
+                    .send((receive, controls.clone()))
+                    .map_err(|_| "Worker indisponível na inicialização")?;
                 serve(backend, || {
                     controls.maintain(owners);
                     if owners.iter().any(|o| o.worker_cancelled()) {
@@ -129,7 +91,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     Ok(())
-                })
+                })?;
+                Ok(())
             },
         )?;
 

@@ -21,7 +21,7 @@ module.exports=async win=>{
  }finally{dialog.showOpenDialog=original;await fs.unlink(invalid);}
  for(let i=0;i<60;i++){if(await run('!document.querySelector(".node.plugin [data-action=play]").disabled'))break;await pause(100);}
  assert.equal(await run('document.querySelector(".node.plugin [data-action=play]").disabled'),false);
- await click('.node.plugin [data-action=play]');
+ await click('.node.plugin .node-config');await click('#inspector-content [data-action=play]');
  assert.equal(await run('document.body.dataset.signal'),'3');
  assert.ok(Number.isFinite(parseFloat(await run('document.getElementById("output-db").textContent'))));
  await click('.node.plugin [data-action=play]');
@@ -36,6 +36,7 @@ module.exports=async win=>{
  await click('#connections .edge-remove');assert.equal(await run('document.querySelector("[data-action=play]").disabled'),true);assert.match(await run('document.querySelector("[data-player-blocker]").textContent'),/Conecte/);
  await click('.node.plugin [data-port=source]');await click('.node.output [data-port=sink]');
  assert.equal(await run('document.querySelector("[data-action=play]").disabled'),false);
+ await click('#inspector-close');
  console.log('PASS: motivos visíveis para arquivo ausente/inválido, mute e desconexão; recuperação para MP3 válido.');
  console.log('PASS: player no canvas, seletor de arquivo simulado, Play/pause, busca, retomada, medidor e EOF.');
 };

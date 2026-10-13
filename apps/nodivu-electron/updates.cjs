@@ -2,13 +2,13 @@
 class Updates {
   constructor(updater, {version, publish = () => {}, log = () => {}, prepareInstall = async () => true}) {
     this.updater = updater; this.publish = publish; this.log = log; this.prepareInstall = prepareInstall;
-    this.state = {phase: updater ? 'idle' : 'disabled', current: version, version: null, percent: 0, message: updater ? 'Canal de testes' : 'Atualizações disponíveis na versão instalada.'};
+    this.state = {phase: updater ? 'idle' : 'disabled', current: version, version: null, percent: 0, message: updater ? (version.includes('-')?'Canal de testes':'Versões publicadas') : 'Atualizações disponíveis na versão instalada.'};
     this.operation = null;
     if (!updater) return;
     updater.autoDownload = false;
     updater.autoInstallOnAppQuit = false; // Even closing the app must not install without consent.
     updater.allowDowngrade = false;
-    updater.allowPrerelease = true;
+    updater.allowPrerelease = version.includes('-');
     updater.on('checking-for-update', () => this.set({phase:'checking', message:'Procurando atualização…'}));
     updater.on('update-available', info => this.set({phase:'available', version:info.version, message:'Nova versão disponível.'}));
     updater.on('update-not-available', () => this.set({phase:'idle', message:'Você está na versão mais recente deste canal.'}));

@@ -81,9 +81,38 @@ impl<B: DeviceBackend> AppBackend<B> {
             Ok(())
         }
     }
+    // Missing packages remain in the persistent document. Only the runtime projection
+    // drops their nodes/wires, so it cannot accidentally bypass a missing processor.
+    fn execution_graph(&self, graph: &Graph) -> Graph {
+        let catalog = self.backend.plugin_catalog();
+        let mut active = graph.clone();
+        active.nodes.retain(|n| match &n.block {
+            Block::Plugin { plugin_id, .. } => catalog
+                .as_array()
+                .is_some_and(|items| items.iter().any(|p| p["id"].as_str() == Some(plugin_id))),
+            _ => true,
+        });
+        active.edges.retain(|e| {
+            active.nodes.iter().any(|n| n.id == e.from) && active.nodes.iter().any(|n| n.id == e.to)
+        });
+        active
+    }
     pub fn snapshot(&self) -> Value {
-        json!({"monitor":{"endpoint_id":self.monitor_endpoint,"runtime":self.audio.as_ref().map_or(json!({"state":"off"}),|a|a.monitor_snapshot())},"suspended":self.suspended,"plugin_states":self.backend.plugin_runtime(),"revision":self.revision,"graph":self.graph,"muted":self.muted,"engine_state":self.audio.as_ref().map_or("idle",|a|a.state()),"generation":self.generation,
-            "signal":if self.muted { 0 } else { self.graph.live_plan(self.muted, |id| self.backend.plugin_latency(id)).map_or(0, |p| p.signal.source) },"metrics":self.audio.as_ref().map(|a|a.metrics()),
+        let active = self.execution_graph(&self.graph);
+        let missing: Vec<_> = self
+            .graph
+            .nodes
+            .iter()
+            .filter(|n| !active.nodes.iter().any(|a| a.id == n.id))
+            .map(|n| {
+                let Block::Plugin { plugin_id, .. } = &n.block else {
+                    return json!(null);
+                };
+                json!({"node_id":n.id,"plugin_id":plugin_id})
+            })
+            .collect();
+        json!({"missing_plugins":missing,"monitor":{"endpoint_id":self.monitor_endpoint,"runtime":self.audio.as_ref().map_or(json!({"state":"off"}),|a|a.monitor_snapshot())},"suspended":self.suspended,"plugin_states":self.backend.plugin_runtime(),"revision":self.revision,"graph":self.graph,"muted":self.muted,"engine_state":self.audio.as_ref().map_or("idle",|a|a.state()),"generation":self.generation,
+            "signal":if self.muted { 0 } else { active.live_plan(self.muted, |id| self.backend.plugin_latency(id)).map_or(0, |p| p.signal.source) },"metrics":self.audio.as_ref().map(|a|a.metrics()),
             "last_error":self.audio.as_ref().and_then(|a|a.error()).or_else(||self.last_error.clone()),
             "capture_error":self.audio.as_ref().and_then(|a|a.capture_error())})
     }
@@ -95,7 +124,7 @@ impl<B: DeviceBackend> AppBackend<B> {
         let output = self.graph.endpoint(false);
         let desired = output.map(|output| (capture, output));
         let plan = match self
-            .graph
+            .execution_graph(&self.graph)
             .live_plan(self.muted, |id| self.backend.plugin_latency(id))
         {
             Ok(plan) => plan,
@@ -144,7 +173,8 @@ impl<B: DeviceBackend> AppBackend<B> {
     }
     fn apply(&mut self, mut graph: Graph) -> Result<Value, ApiError> {
         graph.validate()?;
-        graph.live_plan(self.muted, |id| self.backend.plugin_latency(id))?;
+        let active = self.execution_graph(&graph);
+        active.live_plan(self.muted, |id| self.backend.plugin_latency(id))?;
         graph.schema_version = 2;
         for node in &graph.nodes {
             if let Ok(previous) = self.graph.node(node.id)
@@ -184,7 +214,7 @@ impl<B: DeviceBackend> AppBackend<B> {
             self.revision
         };
         self.backend
-            .configure_plugins(&graph)
+            .configure_plugins(&active)
             .map_err(|e| ApiError::invalid(e.to_string()))?;
         if graph != self.graph {
             self.revision = next_revision;
@@ -273,14 +303,16 @@ impl<B: DeviceBackend> AppBackend<B> {
                 let p: Input = params(request.params)?;
                 self.revision(p.expected_revision)?;
                 let project = nodivu_core::project::Project::parse(&p.contents)?;
-                project
-                    .graph
-                    .live_plan(false, |id| self.backend.plugin_latency(id))?;
+                let active = self.execution_graph(&project.graph);
+                active.live_plan(false, |id| self.backend.plugin_latency(id))?;
                 self.backend
-                    .validate_plugins(&project.graph)
+                    .validate_plugins(&active)
                     .map_err(|e| ApiError::invalid(e.to_string()))?;
                 let catalog = self.backend.plugin_catalog();
                 for resource in &project.resources {
+                    if !active.nodes.iter().any(|n| n.id == resource.node_id) {
+                        continue;
+                    }
                     let Block::Plugin { plugin_id, .. } =
                         &project.graph.node(resource.node_id)?.block
                     else {
@@ -295,6 +327,9 @@ impl<B: DeviceBackend> AppBackend<B> {
                     }
                 }
                 for source in &project.captures {
+                    if !active.nodes.iter().any(|n| n.id == source.node_id) {
+                        continue;
+                    }
                     let Block::Plugin { plugin_id, .. } =
                         &project.graph.node(source.node_id)?.block
                     else {
@@ -321,9 +356,12 @@ impl<B: DeviceBackend> AppBackend<B> {
                 self.suspended = true;
                 self.backend
                     .configure_plugins(&Graph::default())
-                    .and_then(|()| self.backend.configure_plugins(&project.graph))
+                    .and_then(|()| self.backend.configure_plugins(&active))
                     .map_err(|e| ApiError::new(ErrorCode::BackendError, e.to_string()))?;
                 for source in &project.captures {
+                    if !active.nodes.iter().any(|n| n.id == source.node_id) {
+                        continue;
+                    }
                     self.backend
                         .capture_configure(source.node_id, Some(source.selection.clone()), None)
                         .map_err(|e| ApiError::new(ErrorCode::BackendError, e.to_string()))?;

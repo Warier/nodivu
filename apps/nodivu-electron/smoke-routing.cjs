@@ -18,7 +18,7 @@ module.exports=async win=>{
  await click(port('tone','source'));await click('.node.plugin [data-port=sink]');
  await until('Math.abs(parseFloat(document.querySelector(".node.plugin [data-node-level]").textContent)+24)<0.3','Consumidor externo nao recebe');
  // The two tone branches remain distinct. Right-click removes only the chosen connection.
- await run(`{const tone=document.querySelector('.node.tone').dataset.id,mix=document.querySelector('.node.mixer').dataset.id;const wire=[...document.querySelectorAll('.wire')].find(w=>{const e=JSON.parse(w.dataset.edge);return e.from===tone&&e.to===mix;});wire.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));}`);
+ await run(`{const tone=document.querySelector('.node.tone').dataset.id,mix=document.querySelector('.node.mixer').dataset.id;const wire=[...document.querySelectorAll('.wire')].find(w=>{const e=JSON.parse(w.dataset.edge);return e.from===tone&&e.to===mix;});wire.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));document.getElementById('wire-delete').click();}`);
  await until('Math.abs(parseFloat(document.getElementById("output-db").textContent)+36)<0.3','Remover um ramo afetou soma incorretamente');
  assert.equal(await run('document.querySelectorAll(".wire").length'),5);
  assert.equal(await run('document.body.dataset.generation'),generation);

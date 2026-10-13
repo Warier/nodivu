@@ -18,6 +18,7 @@ try {
     # Also initializes the installed MSVC x64 environment before Rust linking.
     & "$PSScriptRoot/Build-Mp3Plugin.ps1"
     & "$PSScriptRoot/Build-WindowsAudioPlugin.ps1"
+    & "$PSScriptRoot/Build-AudioCleanup.ps1"
     # Static C runtime: no separate VC redistributable for this backend.
     cargo rustc -p nodivu-app-backend --release --locked -- -C target-feature=+crt-static
     if ($LASTEXITCODE) { throw 'Build Rust falhou.' }

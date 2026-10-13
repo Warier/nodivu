@@ -13,6 +13,7 @@ export function audioPresentation(snapshot, devices, online, deviceIssue='') {
   if (snapshot.engine_state !== 'running') return {title:'Áudio indisponível',message:'Não foi possível manter os dispositivos abertos. Confira a seleção e tente novamente.',action:'activate',label:'Tentar abrir novamente'};
   if (snapshot.muted) return {title:'Tudo silenciado',message:'O áudio está ativo, mas o envio foi silenciado.',action:'unmute',label:'Restaurar som'};
   if(snapshot.capture_error)return {title:'Saída ativa · microfone indisponível',message:snapshot.capture_error.message+' O player ainda pode tocar. Confira a entrada e tente reabrir os dispositivos.',action:'activate',label:'Reabrir dispositivos',ready:true};
+  if(snapshot.missing_plugins?.length)return {title:'Projeto com plugins indisponíveis',message:'Caminhos com plugins ausentes estão silenciosos; os demais continuam ativos. Reinstale ou ative em Gerenciar plugins e reabra o app. Preservados: '+[...new Set(snapshot.missing_plugins.map(p=>p.plugin_id))].join(', '),action:null,ready:true};
   if(snapshot.signal===0)return {title:'Saída pronta · conecte os blocos',message:'O dispositivo está aberto. Conecte uma fonte à saída ou a um consumidor; o áudio passa automaticamente quando o caminho estiver pronto.',action:null,ready:true};
   return {title:'Áudio ativo',message:'Destino: '+endpoint.name,action:null,ready:true};
 }

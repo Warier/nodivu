@@ -28,6 +28,8 @@ pub struct Package {
     pub python: String,
     pub script: PathBuf,
     pub profile: String,
+    #[serde(default)]
+    pub controls: Vec<crate::plugin::Control>,
 }
 impl Package {
     pub fn read(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
@@ -52,6 +54,16 @@ impl Package {
         {
             return Err("Manifesto de worker inválido".into());
         }
+        if p.controls.len() > 1
+            || p.controls
+                .iter()
+                .any(|c| c.parameter != 7 || !c.valid() || !c.fits_parameter(0.0, 4.0, false))
+        {
+            return Err(
+                "Controles do perfil effect-gain-v1 devem referenciar somente parâmetro 7 (0..4)"
+                    .into(),
+            );
+        }
         let parent = path
             .canonicalize()?
             .parent()
@@ -67,10 +79,15 @@ impl Package {
         Ok(p)
     }
     pub fn catalog(&self) -> Value {
+        let controls = if self.controls.is_empty() {
+            json!([{"parameter":7,"label":"Intensidade","widget":"slider","unit":"×","group":"Processamento externo"}])
+        } else {
+            json!(self.controls)
+        };
         json!({"id":self.plugin_id,"name":self.title,"source":false,"consumer":false,"inputs":[0],"outputs":[0],"file_player":false,"worker":true,"latency_frames":LATENCY_FRAMES,
             "parameters":[{"id":7,"min":0.0,"max":4.0,"default":1.0,"readonly":false,"stepped":false}],
             "appearance":{"title":self.title,"description":self.description,"accent":self.accent,"layout":"stack",
-                "controls":[{"parameter":7,"label":"Intensidade","widget":"slider","unit":"×","group":"Processamento externo"}]}})
+                "controls":controls}})
     }
 }
 

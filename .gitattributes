@@ -12,3 +12,6 @@
 *.c text eol=lf
 *.png binary
 *.ico binary
+
+# Preserve audited upstream bytes and its original whitespace.
+third_party/rnnoise-0.2/** -text -whitespace

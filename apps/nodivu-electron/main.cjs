@@ -7,16 +7,18 @@ const os = require('node:os');
 const {RecentProjects} = require('./recent-projects.cjs');
 let recentProjects, projectsDirectory, installedManifest, updates, recovery;
 let projectOperation=false;
+let pluginQueue=Promise.resolve(),pluginQueued=0;
 const demoMode=process.argv.includes('--frontend-demo');
 const {readProject, writeProject, resourcesForFile} = require('./project-files.cjs');
 let projectPath = null, projectDirty = false, confirmingClose = false;
 const PAGE = 'nodivu://app/index.html';
 const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry','audio.monitor']);
 const executable = app.isPackaged ? path.join(__dirname, 'bin/nodivu-app-backend.exe') : path.resolve(__dirname, '../../target/release/nodivu-app-backend.exe');
-let win, engine, quitting = false, exitCode = 0;
+let win, engine, pluginManager, pluginCatalog, pluginOperation=false, quitting = false, exitCode = 0;
 const recoveryTest=process.argv.includes('--smoke-test')&&process.argv.includes('--test-recovery');
 const recoveryTestId=process.env.NODIVU_RECOVERY_TEST_ID;
 if(recoveryTest&&!/^[a-zA-Z0-9-]{1,80}$/.test(recoveryTestId||''))throw new Error('ID de ensaio de recuperação inválido.');
+const storeTest=process.argv.includes('--smoke-test') && process.argv.includes('--test-store');
 const updateTest=process.argv.includes('--smoke-test') && process.argv.includes('--test-update');
 
 app.on('second-instance',()=>{if(win){win.restore();win.focus();}});
@@ -32,7 +34,7 @@ const startupRecoveryTest = process.argv.includes('--smoke-test') && process.arg
 let testHelloCalls=0, testDeviceCalls=0;
 function startEngine() {
   const manifest=process.env.NODIVU_PLUGIN_MANIFEST || installedManifest || path.resolve(__dirname, app.isPackaged?'../../plugins/plugin.json':'../../.local/plugins/plugin.json');
-  const env={...process.env,NODIVU_SCAN_PLUGINS:'1',NODIVU_APP_ROOT_PID:String(process.pid)};
+  const env={...process.env,NODIVU_SCAN_PLUGINS:'1',NODIVU_APP_ROOT_PID:String(process.pid),NODIVU_PLUGIN_REPORT:path.join(app.getPath('userData'),'plugin-load-report.json')};
   if(process.env.NODIVU_PLUGIN_MANIFEST || require('node:fs').existsSync(path.dirname(manifest))) env.NODIVU_PLUGIN_MANIFEST=manifest;
   engine = demoMode ? new (require('./demo-engine.cjs').DemoEngine)() : new Engine(executable,env);
   engine.on('fault', message => { diagnostics.record('backend.fault', {message}); if (win && !win.isDestroyed()) {if(recovery)win.webContents.send('recovery:state',recovery.protect());win.webContents.send('engine:fault', message);} });
@@ -64,7 +66,9 @@ app.whenReady().then(async () => {
   }
   protocol.handle('nodivu', async request => {
     const url = new URL(request.url);
-    const files = { '/index.html': 'text/html', '/renderer.js': 'text/javascript', '/viewport.js': 'text/javascript', '/virtual-cable.mjs': 'text/javascript', '/playback-state.mjs': 'text/javascript', '/capture-source.mjs': 'text/javascript', '/style.css': 'text/css', ...Object.fromEntries(['index','capture','output','gain','tone','plugin','mixer','meter'].map(name => ['/blocks/'+name+'.js','text/javascript'])) };
+    const vendors={'/vendor/marked.js':'marked/lib/marked.esm.js','/vendor/purify.js':'dompurify/dist/purify.es.mjs'};
+    if(url.host==='app'&&Object.hasOwn(vendors,url.pathname))return new Response(await fs.readFile(path.join(__dirname,'node_modules',vendors[url.pathname])),{headers:{'Content-Type':'text/javascript'}});
+    const files = { '/index.html': 'text/html', '/renderer.js': 'text/javascript', '/viewport.js': 'text/javascript', '/virtual-cable.mjs': 'text/javascript', '/playback-state.mjs': 'text/javascript', '/capture-source.mjs': 'text/javascript', '/style.css': 'text/css', '/studio.css': 'text/css', '/studio.js': 'text/javascript', '/plugin-manager.js': 'text/javascript', '/plugin-manager.css': 'text/css', ...Object.fromEntries(['index','capture','output','gain','tone','plugin','mixer','meter'].map(name => ['/blocks/'+name+'.js','text/javascript'])) };
     if (url.host !== 'app' || !Object.hasOwn(files, url.pathname)) return new Response('', { status: 404 });
     return new Response(await fs.readFile(path.join(__dirname, 'ui', url.pathname.slice(1))),
       { headers: { 'Content-Type': files[url.pathname] + '; charset=utf-8' } });
@@ -95,6 +99,68 @@ app.whenReady().then(async () => {
     installedManifest = await require('./plugin-storage.cjs').preparePlugins(
       path.resolve(__dirname,'../../plugins'), path.join(app.getPath('userData'),'plugins'));
   }
+  if (!process.env.NODIVU_PLUGIN_MANIFEST) {
+    const pluginRoot=demoMode?path.join(app.getPath('userData'),'plugins'):path.dirname(installedManifest || path.resolve(__dirname,'../../.local/plugins/plugin.json'));
+    pluginManager=new (require('./plugin-manager.cjs').PluginManager)(pluginRoot,path.join(app.getPath('userData'),'plugin-archive'),path.join(app.getPath('userData'),'plugin-load-report.json'));
+    await pluginManager.init();
+  }
+  pluginCatalog=await require('./plugin-store.cjs').createStore(app,{test:storeTest});
+  const refreshStore=()=>{if(!pluginOperation&&pluginCatalog.source)void pluginCatalog.refresh();};
+  if(!process.argv.includes('--smoke-test')){setTimeout(refreshStore,20000).unref();setInterval(refreshStore,6*60*60*1000).unref();}
+  ipcMain.handle('plugins:manage',async(event,action,payload)=>{
+    trusted(event);
+    if(!pluginManager)return {error:'Gerenciamento indisponível com NODIVU_PLUGIN_MANIFEST. Use a instalação normal do app.'};
+    if(action==='store-status')return pluginCatalog.operationStatus();
+    if(action==='store-cancel')return pluginCatalog.cancel();
+    if(pluginQueued>=16)return {error:'Há muitas operações de plugins pendentes. Aguarde um momento.'};
+    ++pluginQueued;
+    const operation=async()=>{
+    pluginOperation=true;
+    try {
+      if(typeof action==='string'&&action.startsWith('store-'))return await require('./plugin-store.cjs').handleStore(pluginCatalog,pluginManager,action,payload,storeTest?{showMessageBox:async()=>({response:1})}:dialog,win);
+      if(action==='list')return await pluginManager.list();
+      if(action==='clear-cache'){
+        const removed=await require('./plugin-cache.cjs').clearPluginCache(pluginCatalog,pluginManager);
+        const state=await pluginManager.list();state.warnings.push(`${removed} itens de cache removidos. Pacotes instalados, versões de recuperação e projetos preservados.`);return state;
+      }
+      if(action==='details')return await pluginManager.details(payload?.key);
+      if(action==='image')return await pluginManager.image(payload?.key,payload?.relative);
+      if(action==='cancel-update')return await pluginManager.cancelUpdate(payload?.key);
+      if(action==='rollback'){
+        const choice=await dialog.showMessageBox(win,{type:'question',message:'Agendar retorno à versão anterior?',detail:'Será aplicado na próxima abertura. Salve uma cópia do projeto antes de trocar versões.',buttons:['Cancelar','Agendar'],defaultId:0,cancelId:0});
+        return choice.response===1?await pluginManager.rollback(payload?.key,payload?.previous):await pluginManager.list();
+      }
+      if(action==='link'){
+        const url=new URL(payload?.url);if(url.protocol!=='https:'||url.username||url.password)throw new Error('Somente links HTTPS são permitidos.');
+        await shell.openExternal(url.href);return {};
+      }
+      if(action==='enable')return await pluginManager.setEnabled(payload?.key,payload?.enabled);
+      if(action==='cancel-removal')return await pluginManager.cancelRemoval(payload?.key);
+      if(action==='remove'){
+        const choice=await dialog.showMessageBox(win,{type:'question',message:'Remover este pacote na próxima abertura?',detail:'Projetos e configurações dos blocos serão preservados. Projetos que usam este plugin podem ficar indisponíveis até reinstalá-lo. Os arquivos serão guardados no arquivo local de plugins.',buttons:['Cancelar','Agendar remoção'],defaultId:0,cancelId:0});
+        return choice.response===1?await pluginManager.remove(payload?.key):await pluginManager.list();
+      }
+      if(action==='install'||action==='install-zip'){
+        const selected=await dialog.showOpenDialog(win,action==='install-zip'?{title:'Escolher pacote de plugin',properties:['openFile'],filters:[{name:'Plugin Nodivu / ZIP',extensions:['nodivu-plugin','zip']}]}:{title:'Escolher pasta de plugin (contendo plugin.json e biblioteca .clap)',properties:['openDirectory']});
+        if(selected.canceled)return await pluginManager.list();
+        let source=selected.filePaths[0],temporary;
+        try{
+          if(action==='install-zip'){
+            temporary=path.join(app.getPath('userData'),'plugin-unpack',require('node:crypto').randomUUID());
+            await fs.mkdir(path.dirname(temporary),{recursive:true});
+            source=await require('./plugin-archive.cjs').extractArchive(source,temporary);
+          }
+          const info=await require('./plugin-manager.cjs').inspectFolder(source);
+          const choice=await dialog.showMessageBox(win,{type:'question',message:'Instalar '+info.data.title+(info.metadata?' '+info.metadata.version:'')+'?',detail:'Este pacote contém código nativo e poderá executar com os mesmos acessos do Nodivu após reiniciar. Instale apenas de um autor em quem confia. Pacotes com versão mais recente atualizam a instalação existente na próxima abertura. Tamanho: '+(info.bytes/1048576).toFixed(1)+' MiB.',buttons:['Cancelar','Instalar'],defaultId:0,cancelId:0});
+          return choice.response===1?await pluginManager.install(source):await pluginManager.list();
+        }finally{if(temporary)await fs.rm(temporary,{recursive:true,force:true});}
+      }
+      throw new Error('Ação de plugins desconhecida.');
+    }catch(error){diagnostics.record('plugins.error',{action,message:error.message});return {error:error.message};}
+    finally{pluginOperation=false;--pluginQueued;}
+    };
+    const result=pluginQueue.then(operation,operation);pluginQueue=result.catch(()=>{});return result;
+  });
   startEngine();
   const updateEnabled = app.isPackaged && process.platform === 'win32' && !demoMode &&
     (!process.argv.includes('--smoke-test') || updateTest) && require('node:fs').existsSync(path.join(process.resourcesPath,'app-update.yml'));
@@ -227,7 +293,7 @@ app.whenReady().then(async () => {
   if(updateTest){await require('./smoke-update.cjs')(win,updates);return;}
   if(recoveryTest){try{await require('./smoke-recovery.cjs')(win,recovery,engine);}catch(error){console.error(error);exitCode=1;}await shutdown();return;}
   if (process.argv.includes('--smoke-test')) {
-    try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-virtual-cable.cjs')(win); if(process.argv.includes('--test-monitor'))await require('./smoke-monitor.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
+    try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-studio.cjs')(win); if(process.argv.includes('--test-cleanup'))await require('./smoke-cleanup.cjs')(win); if(!process.env.NODIVU_PLUGIN_MANIFEST)await require('./smoke-plugin-manager.cjs')(win,pluginManager); if(storeTest)await require('./smoke-plugin-store.cjs')(win); await require('./smoke-virtual-cable.cjs')(win); if(process.argv.includes('--test-monitor'))await require('./smoke-monitor.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
     catch (error) { console.error(error); exitCode = 1; }
     await shutdown();
   }

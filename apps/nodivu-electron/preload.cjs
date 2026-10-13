@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('nodivu', {
+  plugins:(action,payload)=>ipcRenderer.invoke('plugins:manage',action,payload),
   update:action=>ipcRenderer.invoke('updates:action',action),
   onUpdate:callback=>ipcRenderer.on('updates:state',(_event,state)=>callback(state)),
   installCable:()=>ipcRenderer.invoke('cable:installer'),

@@ -1,9 +1,11 @@
-﻿param([switch]$Audio,[switch]$Plugin,[switch]$Mp3,[switch]$Worker,[switch]$Routing,[switch]$Viewport,[switch]$Project,[switch]$Capture,[switch]$Demo,[switch]$StartupRecovery,[switch]$Monitor)
+﻿param([switch]$Audio,[switch]$Plugin,[switch]$Mp3,[switch]$Worker,[switch]$Routing,[switch]$Viewport,[switch]$Project,[switch]$Capture,[switch]$Demo,[switch]$StartupRecovery,[switch]$Monitor,[switch]$StudioPlugin,[switch]$Cleanup)
 $ErrorActionPreference = 'Stop'
 $nodivuRoot = Split-Path $PSScriptRoot -Parent
 $nodivuExe = Join-Path $nodivuRoot '.local/electron/nodivu-electron.exe'
 $nodivuArgs = @('--smoke-test')
-if ($Audio -or $Plugin) { $nodivuArgs += '--test-audio' }
+if ($Audio -or $Plugin -or $StudioPlugin) { $nodivuArgs += '--test-audio' }
+if ($Cleanup) { $nodivuArgs += @('--test-audio','--test-cleanup') }
+if ($StudioPlugin) { $nodivuArgs += '--test-studio-plugin' }
 if ($Plugin) { $nodivuArgs += '--test-plugin' }
 if ($Mp3) { $nodivuArgs += @('--test-audio','--test-mp3') }
 if ($Worker) { $nodivuArgs += @('--test-audio','--test-worker') }
@@ -25,3 +27,4 @@ Get-Content "$nodivuRoot/.local/electron-test.stdout.log" -Encoding UTF8
 Get-Content "$nodivuRoot/.local/electron-test.stderr.log" -Encoding UTF8
 $nodivuProcess.Dispose()
 if ($null -eq $nodivuExitCode -or $nodivuExitCode -ne 0) { throw "Teste Electron falhou: $nodivuExitCode" }
+if (!(Select-String -LiteralPath "$nodivuRoot/.local/electron-test.stdout.log" -SimpleMatch 'PASS: Electron, canvas, API e encerramento.' -Quiet)) { throw 'Electron saiu sem concluir o ensaio; verifique os logs.' }

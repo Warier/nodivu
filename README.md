@@ -8,6 +8,21 @@ Nodivu é um mixer e roteador local de áudio com uma interface de nós. Use o m
 
 O projeto está em fase experimental. Este repositório contém o código necessário para montar o aplicativo, seus plugins principais e testes. Ainda não representa uma versão estável para produção.
 
+## Baixar
+
+[Instalador 0.2.0 para Windows x64](https://github.com/Warier/nodivu/releases/download/v0.2.0/Nodivu-0.2.0-windows-x64-setup.exe) · [Notas e checksums](https://github.com/Warier/nodivu/releases/tag/v0.2.0).
+
+Quem usa 0.1.3-beta.1 pode procurar atualizações em **Sistema**. Projetos e plugins do perfil são preservados. A instalação do VB-CABLE continua opcional e separada do motor; não mudamos dispositivos padrão do Windows.
+
+## Novidades da 0.2.0
+
+- Estúdio com blocos compactos, biblioteca por categorias recolhíveis/redimensionável, inspetor móvel e configurações ampliadas de plugins.
+- Gerenciador local: pasta/ZIP, documentação, ativação, versões/retorno, download verificável, cancelamento/progresso e limpeza de cache.
+- Limpeza de voz RNNoise na CPU (30 ms) e limitador de picos (5 ms), com intensidade/teto no bloco e ajustes no inspetor. Latências nativas e bypass são alinhados pelo Mixer.
+- Projetos abrem mesmo com plugins ausentes/desativados: parâmetros, fios e recursos ficam preservados; somente os caminhos dependentes ficam silenciosos.
+
+O cliente de catálogo assinado está implementado e testado, mas **o catálogo público ainda não está publicado**. Explorar exige uma origem de confiança distribuída pelo mantenedor; para esta versão, os quatro plugins principais acompanham o app e outros podem ser adicionados localmente. Instâncias ainda usam um pool limitado (oito tipos habilitados/oito blocos no grafo). Não há isolamento de crash de DLL nem loja de modelos de IA pesados.
+
 ## Por que Nodivu?
 
 - **Roteamento visual:** arraste fios entre blocos, ramifique uma fonte e some sinais com o Mixer.
@@ -60,7 +75,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Electron.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Start-Electron.ps1
 ```
 
-O primeiro comando compila o player e a captura nativos, compila o backend Rust, instala as dependências com `npm ci`, executa os testes Node e monta o aplicativo em **`.local/electron/nodivu-electron.exe`**. O segundo abre esse aplicativo. O parâmetro de execução de scripts vale somente para esse processo do PowerShell; não altera a política global.
+O primeiro comando compila o player, a captura, a limpeza de voz e o limitador nativos, compila o backend Rust, instala as dependências com `npm ci`, executa os testes Node e monta o aplicativo em **`.local/electron/nodivu-electron.exe`**. O segundo abre esse aplicativo. O parâmetro de execução de scripts vale somente para esse processo do PowerShell; não altera a política global.
 
 Não é preciso baixar DLLs do Nodivu, copiar uma pasta de outra máquina ou instalar o cabo virtual para começar. O runtime Electron e os avisos das dependências acompanham o app montado. Feche a cópia do Nodivu dessa pasta antes de reconstruí-la para evitar arquivos em uso. Execute sem overrides `CARGO_TARGET_DIR` ou `CARGO_BUILD_TARGET`, pois a interface usa `target/release`.
 
@@ -69,7 +84,7 @@ Não é preciso baixar DLLs do Nodivu, copiar uma pasta de outra máquina ou ins
 1. Adicione **Player de áudio** e **Saída** pela lista de blocos.
 2. Selecione seu fone na Saída. Escolha no player um MP3, WAV ou M4A/AAC de até **10 minutos e 256 MiB**.
 3. Arraste um fio da saída do player até a entrada do bloco Saída. Pressione **Play**; teste pause e a barra de posição.
-4. Insira um bloco **Ganho** entre ambos e altere seu valor. O medidor deve acompanhar o sinal. Para retirar um fio, clique nele com o botão direito.
+4. Insira um bloco **Ganho** entre ambos e altere seu valor. O medidor deve acompanhar o sinal. Para retirar um fio, clique nele com o botão direito e escolha **Remover conexão**.
 5. Para testar a voz, use **Entrada** com seu microfone → Ganho → Saída. Prefira fones para evitar que o microfone recapture os alto-falantes.
 
 Ao selecionar dispositivos e conectar uma rota válida, o áudio fica pronto automaticamente. Play controla apenas o arquivo. Sem som, confira o aviso do bloco e a faixa de estado, a seleção do dispositivo, os fios, mute e bypass. Se um dispositivo desaparecer, o app não troca silenciosamente por outro.
@@ -87,6 +102,14 @@ O Nodivu não instala drivers nem altera os dispositivos padrão do Windows. Sem
 Use **Salvar**, **Abrir**, **Recentes** e o botão de pasta. A pasta sugerida é `Documentos/Nodivu/Projetos`; o caminho real respeita a configuração de Documentos do Windows. O arquivo `.nodivu.json` guarda referências aos áudios, não os incorpora. Ao compartilhar um projeto, disponibilize também os arquivos usados e revise os dispositivos no outro computador.
 
 Arraste uma área vazia ou use o botão do meio para mover a câmera. Use Ctrl + roda do mouse ou os botões `+`/`−` para zoom, e **Enquadrar** para localizar os blocos. Abrir um projeto retoma a rota válida, mas não começa a tocar um arquivo automaticamente.
+
+### Estúdio e configurações dos blocos (desenvolvimento)
+
+A biblioteca pode ser recolhida pelo botão ☰, redimensionada pela borda e organizada por categorias. Arraste os cartões ou clique para adicionar. Os blocos são compactos; **⋯** abre um painel flutuante com seus ajustes completos, arrastável pelo cabeçalho. **Inspetor** reabre o painel e **⌖** o posiciona no canto. Clique num fio para identificar seus dois lados e a porta de entrada.
+
+**Sistema** reúne VB-CABLE, dispositivos, recuperação, atualizações e logs; **Escuta** abre o monitoramento local. A mudança visual preserva as rotas, projetos e ativação automática do áudio. Está no desenvolvimento, ainda fora do release 0.1.3-beta.1.
+
+Autores de plugins podem organizar configurações em abas/grupos, separar controles rápidos e avançados e usar listas de opções. Veja o [contrato da interface de plugins](PLUGIN-UI.md), com campos, limites, compatibilidade, exemplos e os recursos que ainda exigem contratos adicionais.
 
 ## Desenvolver a interface, inclusive no Linux
 
@@ -138,7 +161,7 @@ Existe uma cópia por perfil, em `%APPDATA%\Nodivu\recovery\recovery.nodivu.json
 
 ### Escutar a saída final nos fones (desenvolvimento)
 
-No painel **Escuta local → Ouvir minha saída**, selecione seus fones e clique em **Ligar escuta**. Mantenha **CABLE Input** na saída principal para enviar o mesmo mix aos outros apps. Ganhos, plugins, players, Mixer e Silenciar tudo já fazem parte do áudio copiado. Desligar a escuta libera apenas os fones; o cabo continua recebendo áudio. A saída principal não pode ser escolhida como escuta.
+Em **Escuta** (ou **Sistema → Escuta local → Ouvir minha saída**), selecione seus fones e clique em **Ligar escuta**. Mantenha **CABLE Input** na saída principal para enviar o mesmo mix aos outros apps. Ganhos, plugins, players, Mixer e Silenciar tudo já fazem parte do áudio copiado. Desligar a escuta libera apenas os fones; o cabo continua recebendo áudio. A saída principal não pode ser escolhida como escuta.
 
 A escuta começa desligada ao abrir o app e não é salva dentro do projeto. Nenhum dispositivo ou volume padrão do Windows muda. Use fones para evitar que o microfone recapture os alto-falantes. Se a saída secundária desaparecer, o painel informa a falha, sem trocar de dispositivo ou interromper a saída principal; desligue e ligue a escuta para tentar novamente.
 
@@ -147,6 +170,10 @@ A cópia é feita no backend após o processamento, por uma fila estéreo limita
 Essa funcionalidade está no código de desenvolvimento, **fora do release 0.1.3-beta.1**. Para testar, faça o build local. Ensaio real repetível: `node scripts/Test-LocalMonitor.cjs <id-saida-principal> <id-saida-monitor> <id-captura-pareada-monitor>`. Use um cabo na saída de monitor para medir a recepção; IDs devem vir de `devices.list`, sem escolher por posição. O teste verifica ganho, mute, liga/desliga e ausência de reabertura da saída principal. Para testar o painel, defina `NODIVU_TEST_PRIMARY` e `NODIVU_TEST_MONITOR` com IDs explícitos e execute `./scripts/Test-Electron.ps1 -Monitor`.
 
 ### Trabalhar nos plugins
+
+O Estúdio agora tem **Sistema → Plugins instalados** e **Gerenciar plugins** na biblioteca. Nesta primeira etapa, **Adicionar pasta local** importa uma pasta que contenha `plugin.json` e sua biblioteca `.clap`. Não é preciso compilar o Nodivu de novo. Confira a origem do pacote antes de instalar código nativo.
+
+Ativação, desativação e remoção ficam pendentes até fechar e abrir o app; salve o projeto antes. A remoção pode ser cancelada antes de reiniciar e arquiva os arquivos, sem apagar projetos. Pacotes que acompanham o app podem ser desativados. Também aceita ZIP/.nodivu-plugin, README com imagens locais e atualização de pacotes versionados com retorno à versão anterior. As abas Explorar e Atualizações já consomem catálogos assinados TUF; a origem pública ainda não está publicada. Veja [cliente da loja e publicação](PLUGIN-STORE.md). Veja [regras e limites do gerenciamento local](PLUGIN-UI.md#gerenciamento-local-de-pacotes).
 
 Para recompilar apenas um plugin, a partir da raiz:
 
@@ -224,3 +251,9 @@ Contribuições são bem-vindas. Descreva o problema, a mudança e os testes fei
 ## Licença
 
 [MIT](LICENSE): uso, modificação e distribuição, inclusive comercial, mantendo os avisos da licença. Consulte também os [avisos de dependências](THIRD-PARTY-NOTICES.md). CLAP, Electron e seus componentes mantêm suas licenças próprias; nenhum direito sobre marcas de terceiros é transferido.
+
+### Testar limpeza de voz
+
+Monte **Microfone → Limpeza de voz → Ganho → Limitador de picos → Saída**. Para misturar o player, coloque o limitador depois do Mixer. Comece com ganho 0 dB, limpeza 100% e teto −1 dBFS. Use o inspetor para ajustar intensidade e retorno do limitador; o bypass preserva a latência. Compare a voz e o ruído com fones ou pela Escuta quando a saída principal for o cabo virtual. RNNoise é destinado a fala, pode alterar música e não reconstrói áudio já gravado com distorção. O limitador protege a saída deste bloco; um ganho colocado depois dele pode saturar novamente.
+
+Gates adicionais: `./scripts/Test-AudioCleanup.ps1` (DSP sem dispositivos) e `node scripts/check-cleanup.cjs` (WASAPI real, tom baixo). A medição neste PC não garante custo/qualidade iguais em outro hardware; testes de voz subjetivos e Windows 11 continuam necessários.
