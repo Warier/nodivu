@@ -138,6 +138,17 @@ pub trait DeviceBackend {
     fn plugin_runtime(&self) -> serde_json::Value {
         serde_json::json!({})
     }
+    fn plugin_gesture(
+        &mut self,
+        _id: nodivu_core::graph::NodeId,
+        _parameter: u32,
+        _pressed: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::new(
+            "gesto de plugin",
+            std::io::Error::other("Plugin sem gesto momentâneo"),
+        ))
+    }
     fn plugin_command(
         &mut self,
         _id: nodivu_core::graph::NodeId,

@@ -135,10 +135,13 @@ impl Graph {
                     (Role::Consumer, 1, 0, 0)
                 }
                 Block::Plugin {
-                    source, plugin_id, ..
+                    source,
+                    plugin_id,
+                    sidechain,
+                    ..
                 } => (
                     if *source { Role::Source } else { Role::Effect },
-                    usize::from(!source),
+                    usize::from(!source) + usize::from(*sidechain),
                     1,
                     latency(plugin_id),
                 ),

@@ -44,7 +44,7 @@ impl Pipeline {
     }
     #[cfg(test)]
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) -> u64 {
-        self.process_with_effect(left, right, &mut |_, _| false)
+        self.process_with_effect(left, right, &mut |_, _, _| false)
     }
     pub fn process_with_effect(
         &mut self,
@@ -55,7 +55,11 @@ impl Pipeline {
         let mut errors = 0;
         for &index in &self.plan.order[..usize::from(self.plan.count)] {
             if usize::from(index) >= MAX_GAIN_NODES {
-                if !effect(StereoMut::new(left, right), self.plan.processor_id(index)) {
+                if !effect(
+                    StereoMut::new(left, right),
+                    self.plan.processor_id(index),
+                    None,
+                ) {
                     left.fill(0.0);
                     right.fill(0.0);
                     errors += 1;
@@ -117,7 +121,7 @@ mod tests {
         plan.order[..4].copy_from_slice(&[8, 0, 9, 1]);
         pipeline.apply(plan);
         let mut visited = Vec::new();
-        let mut effect = |audio: StereoMut<'_>, id| {
+        let mut effect = |audio: StereoMut<'_>, id, _: Option<(&[f32], &[f32])>| {
             visited.push(id);
             for sample in audio.left.iter_mut().chain(audio.right) {
                 // Noncommutative effects detect accidental grouping/reordering around gains.

@@ -1,5 +1,7 @@
 # Pacotes de plugins Nodivu
 
+**Atualização 2026-10-13:** catálogo experimental em [nodivu-plugins](https://github.com/Warier/nodivu-plugins), com Ducking e Botão de fala separados. O host de desenvolvimento aceita API 1 e 2; a release original 0.2.0 aceita apenas API 1 e não contém este bootstrap. [Contrato API 2](PLUGIN-NATIVE.md): segunda entrada CLAP e widget momentary. Renovação/custódia documentadas no repo do catálogo.
+
 Contrato de distribuição local implementado em 2026-10-09. Não substitui a ABI CLAP nem o [manifesto visual](PLUGIN-UI.md). O áudio continua no backend; o gerenciador não executa scripts de instalação nem compila fontes.
 
 ## Estrutura mínima
@@ -32,7 +34,7 @@ Envelope opcional para legado, obrigatório para atualizar o mesmo ID:
 }
 ```
 
-Obrigatórios: schema 1, ID igual ao manifesto, versão numérica `x.y.z` e autor de até 128 caracteres. Sem pré-release neste primeiro formato; cada parte da versão tem até seis dígitos, sem zero inicial. Se informados, `host_api` deve ser 1 e `platform` precisa corresponder ao sistema/arquitetura atual. Repositório exige HTTPS sem credenciais. `resource_tier` aceita `light`, `moderate`, `heavy` ou `unknown`; é declaração do autor, não benchmark ou aprovação. Ausência vira não medido. Licença é informativa: inclua o texto e avisos das dependências no pacote. Não há selo oficial obtido por campos locais.
+Obrigatórios: schema 1, ID igual ao manifesto, versão numérica `x.y.z` e autor de até 128 caracteres. Sem pré-release neste primeiro formato; cada parte da versão tem até seis dígitos, sem zero inicial. Se informados, `host_api` deve ser 1 ou 2 e `platform` precisa corresponder ao sistema/arquitetura atual. Repositório exige HTTPS sem credenciais. `resource_tier` aceita `light`, `moderate`, `heavy` ou `unknown`; é declaração do autor, não benchmark ou aprovação. Ausência vira não medido. Licença é informativa: inclua o texto e avisos das dependências no pacote. Não há selo oficial obtido por campos locais.
 
 ## Importação e atualização
 

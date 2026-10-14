@@ -29,6 +29,8 @@ pub enum Block {
         source: bool,
         #[serde(default)]
         consumer: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        sidechain: bool,
         plugin_id: String,
         #[serde(deserialize_with = "parameter_map")]
         parameters: std::collections::BTreeMap<u32, f64>,
@@ -364,10 +366,14 @@ impl Graph {
             if let Block::Plugin {
                 plugin_id,
                 parameters,
+                sidechain,
+                source,
+                consumer,
                 ..
             } = &n.block
                 && (plugin_id.is_empty()
                     || plugin_id.len() > 128
+                    || (*sidechain && (*source || *consumer))
                     || parameters.len() > 32
                     || parameters.values().any(|v| !v.is_finite()))
             {
@@ -485,6 +491,7 @@ mod tests {
             block: Block::Plugin {
                 source: false,
                 consumer: false,
+                sidechain: false,
                 plugin_id: "test.effect".into(),
                 parameters: [(7, 0.25)].into(),
                 bypass: false,

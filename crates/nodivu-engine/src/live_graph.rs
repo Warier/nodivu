@@ -48,8 +48,8 @@ impl Runtime {
         result.iter_mut().for_each(|c| c[..frames].fill(0.0));
         for (index, step) in plan.steps[..usize::from(plan.count)].iter().enumerate() {
             let mut audio = [[0.0; FRAMES]; 2];
-            // Only Mixer sums. Current external profile has one input/output bus;
-            // distinct multi-port external profiles must be added explicitly to its adapter.
+            let mut sidechain = [[0.0; FRAMES]; 2];
+            // Only Mixer sums. External port 1 is an independent control signal.
             for (port, input) in step.inputs.iter().enumerate() {
                 if input.source == 0 {
                     continue;
@@ -66,8 +66,13 @@ impl Runtime {
                         *cursor = (*cursor + 1) % usize::from(input.delay);
                         value
                     };
-                    audio[0][i] += value[0];
-                    audio[1][i] += value[1];
+                    let target = if step.kind == 4 && port == 1 {
+                        &mut sidechain
+                    } else {
+                        &mut audio
+                    };
+                    target[0][i] += value[0];
+                    target[1][i] += value[1];
                 }
             }
             let [left, right] = &mut audio;
@@ -114,6 +119,7 @@ impl Runtime {
                     if !effect(
                         StereoMut::new(&mut left[..frames], &mut right[..frames]),
                         step.id,
+                        Some((&sidechain[0][..frames], &sidechain[1][..frames])),
                     ) =>
                 {
                     left[..frames].fill(0.0);
@@ -171,6 +177,51 @@ mod tests {
         ]})).unwrap()
     }
     #[test]
+    fn sidechain_stays_separate_and_disconnected_reference_is_silent() {
+        let mut graph: Graph = serde_json::from_value(json!({"schema_version":2,"nodes":[
+            {"id":id(1),"block":{"kind":"tone","enabled":true}},
+            {"id":id(2),"block":{"kind":"capture","endpoint_id":"test"}},
+            {"id":id(3),"block":{"kind":"plugin","sidechain":true,"plugin_id":"duck","parameters":{},"bypass":false}},
+            {"id":id(4),"block":{"kind":"output","endpoint_id":"test"}}
+        ],"edges":[{"from":id(1),"to":id(3)},{"from":id(2),"to":id(3),"to_port":1},{"from":id(3),"to":id(4)}]})).unwrap();
+        for connected in [true, false] {
+            if !connected {
+                graph.edges.retain(|e| e.to_port != 1);
+            }
+            graph.validate().unwrap();
+            let render = graph.live_plan(false, |_| 0).unwrap();
+            let mut pipeline = Pipeline::default();
+            pipeline.apply(render);
+            let mut runtime = Runtime::default();
+            let mut out = [[0.; FRAMES]; 2];
+            assert_eq!(
+                runtime.process(
+                    &render.live.unwrap(),
+                    &mut pipeline,
+                    (&[[0.7; FRAMES]; 2], &[[0.2; FRAMES]; 2]),
+                    &mut out,
+                    FRAMES,
+                    &mut |audio, _, side| {
+                        assert_eq!(audio.left[0], 0.2);
+                        let (l, r) = side.unwrap();
+                        assert_eq!(l[0], if connected { 0.7 } else { 0. });
+                        assert_eq!(l, r);
+                        true
+                    }
+                ),
+                0
+            );
+            assert_eq!(out, [[0.2; FRAMES]; 2]);
+        }
+        graph.edges.push(nodivu_core::graph::Edge {
+            from: graph.nodes[0].id,
+            to: graph.nodes[2].id,
+            from_port: 0,
+            to_port: 2,
+        });
+        assert!(graph.validate().is_err());
+    }
+    #[test]
     fn production_executor_aligns_impulse_and_isolates_fanout_across_quantums() {
         let graph = graph();
         graph.validate().unwrap();
@@ -192,7 +243,7 @@ mod tests {
                 source[0][0] = 1.0;
                 source[1][0] = -0.5;
             }
-            let mut effect = |audio: StereoMut<'_>, _| {
+            let mut effect = |audio: StereoMut<'_>, _, _: Option<(&[f32], &[f32])>| {
                 calls += 1;
                 for (l, r) in audio.left.iter_mut().zip(audio.right) {
                     let input = [*l, *r];
@@ -247,7 +298,7 @@ mod tests {
                 (&input, &input),
                 &mut out,
                 FRAMES,
-                &mut |audio, _| {
+                &mut |audio, _, _| {
                     audio.left.fill(f32::NAN);
                     true
                 }

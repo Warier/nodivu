@@ -10,8 +10,12 @@ use serde_json::Value;
 use std::sync::{Arc, atomic::Ordering};
 
 /// Callback planar limitado, sem reter buffers. false silencia; o adaptador guarda a causa.
-pub type StereoEffect<'a> =
-    dyn for<'b> FnMut(StereoMut<'b>, Option<nodivu_core::graph::NodeId>) -> bool + 'a;
+pub type StereoEffect<'a> = dyn for<'b> FnMut(
+        StereoMut<'b>,
+        Option<nodivu_core::graph::NodeId>,
+        Option<(&'b [f32], &'b [f32])>,
+    ) -> bool
+    + 'a;
 
 pub struct ExternalAudioRun {
     config: AudioConfig,

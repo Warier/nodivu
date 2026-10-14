@@ -1,6 +1,8 @@
 # Loja de plugins: cliente, catálogo e publicação
 
-Implementação de desenvolvimento, 2026-10-09. O cliente da loja e o gerenciador local estão implementados; **o catálogo público ainda não foi publicado**. A instalação comum mostra isso em Explorar. Nenhum servidor, chave de produção ou release foi criado nesta entrega.
+**Atualização 2026-10-13:** catálogo experimental em [nodivu-plugins](https://github.com/Warier/nodivu-plugins), com Ducking e Botão de fala separados. O host de desenvolvimento aceita API 1 e 2; a release original 0.2.0 aceita apenas API 1 e não contém este bootstrap. [Contrato API 2](PLUGIN-NATIVE.md): segunda entrada CLAP e widget momentary. Renovação/custódia documentadas no repo do catálogo.
+
+O cliente e o gerenciador local estão implementados. O catálogo público experimental é hospedado em GitHub Pages, sem servidor dedicado. As chaves de assinatura permanecem sob custódia local do mantenedor; a operação ainda depende de renovação manual.
 
 ## O que o app já faz
 
@@ -17,7 +19,7 @@ O app não instala atualizações de plugins automaticamente. Uma DLL nativa ver
 
 Usamos [tuf-js](https://github.com/theupdateframework/tuf-js), versão 5.0.1 fixada, compatível com o Node mínimo do projeto. Metadados root/timestamp/snapshot/targets, limiares de assinatura, expiração, hashes e proteção contra versões antigas são tratados pela implementação TUF. O Nodivu acrescenta limites do produto e validação do envelope; não cria um protocolo criptográfico alternativo.
 
-O bootstrap da loja é `apps/nodivu-electron/store/source.json`, incluído pelo build. Sua ausência é deliberada até preparar a operação de publicação. Formato:
+O bootstrap da loja é `apps/nodivu-electron/store/source.json`, incluído pelo build. O build de desenvolvimento inclui o bootstrap público. Formato ilustrativo:
 
 ```json
 {

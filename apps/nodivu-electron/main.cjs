@@ -12,7 +12,7 @@ const demoMode=process.argv.includes('--frontend-demo');
 const {readProject, writeProject, resourcesForFile} = require('./project-files.cjs');
 let projectPath = null, projectDirty = false, confirmingClose = false;
 const PAGE = 'nodivu://app/index.html';
-const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry','audio.monitor']);
+const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','plugin.gesture','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry','audio.monitor']);
 const executable = app.isPackaged ? path.join(__dirname, 'bin/nodivu-app-backend.exe') : path.resolve(__dirname, '../../target/release/nodivu-app-backend.exe');
 let win, engine, pluginManager, pluginCatalog, pluginOperation=false, quitting = false, exitCode = 0;
 const recoveryTest=process.argv.includes('--smoke-test')&&process.argv.includes('--test-recovery');
@@ -68,7 +68,7 @@ app.whenReady().then(async () => {
     const url = new URL(request.url);
     const vendors={'/vendor/marked.js':'marked/lib/marked.esm.js','/vendor/purify.js':'dompurify/dist/purify.es.mjs'};
     if(url.host==='app'&&Object.hasOwn(vendors,url.pathname))return new Response(await fs.readFile(path.join(__dirname,'node_modules',vendors[url.pathname])),{headers:{'Content-Type':'text/javascript'}});
-    const files = { '/index.html': 'text/html', '/renderer.js': 'text/javascript', '/viewport.js': 'text/javascript', '/virtual-cable.mjs': 'text/javascript', '/playback-state.mjs': 'text/javascript', '/capture-source.mjs': 'text/javascript', '/style.css': 'text/css', '/studio.css': 'text/css', '/studio.js': 'text/javascript', '/plugin-manager.js': 'text/javascript', '/plugin-manager.css': 'text/css', ...Object.fromEntries(['index','capture','output','gain','tone','plugin','mixer','meter'].map(name => ['/blocks/'+name+'.js','text/javascript'])) };
+    const files = { '/index.html': 'text/html', '/renderer.js': 'text/javascript', '/viewport.js': 'text/javascript', '/momentary.mjs': 'text/javascript', '/virtual-cable.mjs': 'text/javascript', '/playback-state.mjs': 'text/javascript', '/capture-source.mjs': 'text/javascript', '/style.css': 'text/css', '/studio.css': 'text/css', '/studio.js': 'text/javascript', '/plugin-manager.js': 'text/javascript', '/plugin-manager.css': 'text/css', ...Object.fromEntries(['index','capture','output','gain','tone','plugin','mixer','meter'].map(name => ['/blocks/'+name+'.js','text/javascript'])) };
     if (url.host !== 'app' || !Object.hasOwn(files, url.pathname)) return new Response('', { status: 404 });
     return new Response(await fs.readFile(path.join(__dirname, 'ui', url.pathname.slice(1))),
       { headers: { 'Content-Type': files[url.pathname] + '; charset=utf-8' } });
@@ -289,11 +289,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('plugin:choose-file',async event=>{trusted(event);const result=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Áudio · MP3, WAV, M4A',extensions:['mp3','wav','m4a']}]});return result.canceled?null:result.filePaths[0];});
   ipcMain.handle('engine:restart', async event => { trusted(event); await engine.stop(); startEngine(); });
   await win.loadURL(PAGE);
+  if(storeTest&&process.argv.includes('--test-utility-store')){
+    try{await require('./smoke-utility-store.cjs')(win,pluginManager);}catch(error){console.error(error);exitCode=1;}
+    await shutdown();return;
+  }
   if(process.argv.includes('--devtools'))win.webContents.openDevTools({mode:'detach'});
   if(updateTest){await require('./smoke-update.cjs')(win,updates);return;}
   if(recoveryTest){try{await require('./smoke-recovery.cjs')(win,recovery,engine);}catch(error){console.error(error);exitCode=1;}await shutdown();return;}
   if (process.argv.includes('--smoke-test')) {
-    try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-studio.cjs')(win); if(process.argv.includes('--test-cleanup'))await require('./smoke-cleanup.cjs')(win); if(!process.env.NODIVU_PLUGIN_MANIFEST)await require('./smoke-plugin-manager.cjs')(win,pluginManager); if(storeTest)await require('./smoke-plugin-store.cjs')(win); await require('./smoke-virtual-cable.cjs')(win); if(process.argv.includes('--test-monitor'))await require('./smoke-monitor.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
+    try { if(startupRecoveryTest)await require('./smoke-startup.cjs')(win,diagnostics); await require('./smoke.cjs')(win, process.argv.includes('--test-audio')); if(process.argv.includes('--test-plugin'))await require('./smoke-plugin.cjs')(win); if(process.argv.includes('--test-mp3'))await require('./smoke-mp3.cjs')(win); if(process.argv.includes('--test-worker'))await require('./smoke-worker.cjs')(win); if(process.argv.includes('--test-routing'))await require('./smoke-routing.cjs')(win); if(process.argv.includes('--test-viewport'))await require('./smoke-viewport.cjs')(win); if(process.argv.includes('--test-project'))await require('./smoke-project.cjs')(win); if(process.argv.includes('--test-capture'))await require('./smoke-capture.cjs')(win); await require('./smoke-studio.cjs')(win); if(process.argv.includes('--test-cleanup'))await require('./smoke-cleanup.cjs')(win); if(!process.env.NODIVU_PLUGIN_MANIFEST)await require('./smoke-plugin-manager.cjs')(win,pluginManager); if(storeTest){if(process.argv.includes('--test-utility-store'))await require('./smoke-utility-store.cjs')(win,pluginManager);else await require('./smoke-plugin-store.cjs')(win);} await require('./smoke-virtual-cable.cjs')(win); if(process.argv.includes('--test-monitor'))await require('./smoke-monitor.cjs')(win); console.log('PASS: Electron, canvas, API e encerramento.'); }
     catch (error) { console.error(error); exitCode = 1; }
     await shutdown();
   }

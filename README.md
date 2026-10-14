@@ -257,3 +257,7 @@ Contribuições são bem-vindas. Descreva o problema, a mudança e os testes fei
 Monte **Microfone → Limpeza de voz → Ganho → Limitador de picos → Saída**. Para misturar o player, coloque o limitador depois do Mixer. Comece com ganho 0 dB, limpeza 100% e teto −1 dBFS. Use o inspetor para ajustar intensidade e retorno do limitador; o bypass preserva a latência. Compare a voz e o ruído com fones ou pela Escuta quando a saída principal for o cabo virtual. RNNoise é destinado a fala, pode alterar música e não reconstrói áudio já gravado com distorção. O limitador protege a saída deste bloco; um ganho colocado depois dele pode saturar novamente.
 
 Gates adicionais: `./scripts/Test-AudioCleanup.ps1` (DSP sem dispositivos) e `node scripts/check-cleanup.cjs` (WASAPI real, tom baixo). A medição neste PC não garante custo/qualidade iguais em outro hardware; testes de voz subjetivos e Windows 11 continuam necessários.
+
+## Plugins independentes e catálogo de teste
+
+O desenvolvimento posterior à 0.2.0 inclui [catálogo público experimental](https://github.com/Warier/nodivu-plugins), [Ducking](https://github.com/Warier/nodivu-ducking) e [Botão de fala](https://github.com/Warier/nodivu-talk-button). No app atualizado, abra Gerenciar plugins → Explorar, instale e reabra. A release original 0.2.0 precisa de atualização do host antes de usar estes pacotes API 2. Nenhuma release nova do aplicativo foi gerada automaticamente. [Contrato nativo e comandos de validação](PLUGIN-NATIVE.md).

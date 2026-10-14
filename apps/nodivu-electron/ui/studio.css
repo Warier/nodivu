@@ -15,3 +15,5 @@ main{position:relative;background:#10161d;overflow:hidden}.canvas-toolbar{min-he
 @media(max-width:1120px){header{gap:8px;padding:0 12px}.project-tools #project-folder,#project-recents{display:none}#status{max-width:120px}.project-title b{max-width:170px}.brand{letter-spacing:1px}#mode-label{max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 
 *{scrollbar-width:thin;scrollbar-color:#415063 transparent}.node-title{font-size:12px}.node-content label{font-size:10px}.node .field-value{font-size:9px}.node [data-capture-timing]{display:none}.node.plugin .node-content>label:has([data-field=bypass]){font-size:9px}
+
+.node button.held,#inspector-content button.held{background:#64dabb;color:#13241e;border-color:#64dabb}

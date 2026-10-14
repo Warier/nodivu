@@ -208,6 +208,18 @@ impl<'a, 'plugin> LiveEffect<'a, 'plugin> {
         self.processor.cancelled()
     }
     pub fn process(&mut self, block: StereoMut<'_>) -> Result<ProcessStatus> {
+        self.process_with_sidechain(block, None)
+    }
+    pub fn process_with_sidechain(
+        &mut self,
+        block: StereoMut<'_>,
+        sidechain: Option<(&[f32], &[f32])>,
+    ) -> Result<ProcessStatus> {
+        let sidechain = if self.processor.metadata().has_sidechain {
+            sidechain
+        } else {
+            None
+        };
         let frames = block.left.len();
         if frames == 0 || frames > MAX_FRAMES || frames != block.right.len() {
             return Err(Error::Contract("Buffer inválido no efeito ao vivo"));
@@ -262,11 +274,12 @@ impl<'a, 'plugin> LiveEffect<'a, 'plugin> {
         }
         // Continua processando em bypass: preserva estado e atende eventos sem reopen/reset.
         let status = if separate {
-            self.processor.process(
+            self.processor.process_with_sidechain(
                 self.processor
                     .metadata()
                     .has_input
                     .then_some((&self.dry[0][..frames], &self.dry[1][..frames])),
+                sidechain,
                 StereoMut::new(block.left, block.right),
                 &events[..count],
             )
@@ -317,6 +330,7 @@ mod tests {
             id: "test.controls".into(),
             name: "Descritor sintético para teste de controles".into(),
             has_input: true,
+            has_sidechain: false,
             has_output: true,
             supports_in_place: true,
             latency_frames: 0,

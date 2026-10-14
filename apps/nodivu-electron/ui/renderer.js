@@ -1,3 +1,4 @@
+import { mountMomentary } from './momentary.mjs';
 import { createStudio, arrangeSettings } from './studio.js';
 import { mountCapture, syncCapture } from './capture-source.mjs';
 import { createViewport } from './viewport.js';
@@ -44,9 +45,17 @@ function selectEdge(e){
  studio.show('Conexão de áudio','Uma saída pode alimentar vários destinos',box);
 }
 function clearSelection(){selectedId=null;selectedEdge=null;inspectorView=null;studio.clear();for(const v of views.values())v.root.classList.remove('selected');}
-async function api(command,params={}){const r=await window.nodivu.request(command,params);if(!r.ok){const e=new Error(r.error.message);e.code=r.error.code;throw e;}return r.result;}
+// Gesture heartbeats and snapshots share the single-request backend pipe.
+// A bounded control queue stays outside the audio callback and carries no PCM.
+let apiQueue=Promise.resolve(),apiQueued=0;
+function api(command,params={}){
+ if(apiQueued>=16)return Promise.reject(new Error('Aguarde as operações pendentes.'));
+ ++apiQueued;
+ const result=apiQueue.then(async()=>{try{const r=await window.nodivu.request(command,params);if(!r.ok){const e=new Error(r.error.message);e.code=r.error.code;throw e;}return r.result;}finally{--apiQueued;}});
+ apiQueue=result.catch(()=>{});return result;
+}
 function apply(value){if(!Number.isSafeInteger(value?.revision)||!Array.isArray(value.graph?.nodes)||!Array.isArray(value.graph?.edges))throw new Error('Resposta incompatível com o app.');snapshot=value;}
-async function perform(action){if(busy)return;busy=true;message='';render();try{if(polling)await polling;await action();}catch(e){window.nodivu.reportFault(e.message);message=e.message;if(e.code==='revision_conflict'){try{apply(await api('session.snapshot'));}catch(e){message=e.message;}}}finally{busy=false;render();if(pending.size){clearTimeout(editTimer);editTimer=setTimeout(flush,40);}}}
+async function perform(action){if(busy)return;busy=true;message='';render();try{if(polling)await polling;await apiQueue;await action();}catch(e){window.nodivu.reportFault(e.message);message=e.message;if(e.code==='revision_conflict'){try{apply(await api('session.snapshot'));}catch(e){message=e.message;}}}finally{busy=false;render();if(pending.size){clearTimeout(editTimer);editTimer=setTimeout(flush,40);}}}
 function requireSession(){if(!online||!snapshot)throw new Error('O backend ainda não está pronto. Use Reconectar backend.');}
 async function edit(mutator){requireSession();const graph=structuredClone(snapshot.graph);mutator(graph);apply(await api('graph.apply',{expected_revision:snapshot.revision,graph}));}
 function update(id,key,value){pending.set(id+':'+key,{id,key,value});updateDirty();if(!editTimer)editTimer=setTimeout(flush,60);}
@@ -138,7 +147,8 @@ function organize(){
 }
 function buildContents(node,d,surface){
  const content=el('div',undefined,'node-content'),fields=new Map();
- let lastGroup='';for(const f of d.fields){if(f.group&&f.group!==lastGroup){content.append(el('h3',f.group,'plugin-group'));lastGroup=f.group;}const label=el('label',surface==='node'&&f.key==='bypass'?(d.inputs===0?'Silenciar fonte':d.outputs===0?'Suspender':'Bypass'):f.label),control=el(['device','select'].includes(f.type)?'select':'input'),value=el('strong','','field-value');control.dataset.field=f.key;label.dataset.quick=String(f.quick??(d.kind!=='plugin'||f.key==='bypass'));if(f.help){const help=el('small',f.help,'field-help');label.append(help);}label.title=f.help||f.label;
+ let lastGroup='';for(const f of d.fields){if(f.group&&f.group!==lastGroup){content.append(el('h3',f.group,'plugin-group'));lastGroup=f.group;}const label=el('label',surface==='node'&&f.key==='bypass'?(d.inputs===0?'Silenciar fonte':d.outputs===0?'Suspender':'Bypass'):f.label),control=el(f.type==='momentary'?'button':['device','select'].includes(f.type)?'select':'input'),value=el('strong','','field-value');control.dataset.field=f.key;label.dataset.quick=String(f.quick??(d.kind!=='plugin'||f.key==='bypass'));if(f.help){const help=el('small',f.help,'field-help');label.append(help);}label.title=f.help||f.label;
+  if(f.type==='momentary'){mountMomentary(control,{label:f.label,send:pressed=>{if(busy||!online)return;return api('plugin.gesture',{node_id:node.id,parameter:Number(f.key.slice(10)),pressed});}});label.append(control);content.append(label);continue;}
   if(!['device','select'].includes(f.type))control.type=f.type==='range'?'range':f.type==='number'?'number':'checkbox';
   if(f.type==='range'||f.type==='number'){control.min=f.min;control.max=f.max;control.step=f.step;control.oninput=()=>{if(!control.validity.valid||control.value==='')return;update(node.id,f.key,Number(control.value));value.textContent=f.unit===undefined?Number(control.value).toFixed(1)+' dB · '+(100*Math.pow(10,Number(control.value)/20)).toFixed(1)+'%':Number(control.value).toFixed(3)+' '+f.unit;};label.append(value);}
   else control.onchange=()=>update(node.id,f.key,f.type==='checkbox'?(f.key.startsWith('parameter:')?Number(control.checked):control.checked):f.type==='select'?Number(control.value):control.value||null);
@@ -175,7 +185,7 @@ function build(node){
  const level=el('meter',undefined,'node-meter');level.min=0;level.max=1;level.value=0;level.dataset.nodeMeter='';const levelText=el('small','','node-level');levelText.dataset.nodeLevel='';content.append(level,levelText);
  for(const [port,count]of[['sink',d.inputs],['source',d.outputs]])for(let index=0;index<count;index++){
   const b=el('button',count>1?String(index+1):'',`port ${port}`);b.dataset.port=port;b.dataset.portId=String(index);b.dataset.node=node.id;
-  if(count>1)b.style.top=(64+index*26)+'px';b.setAttribute('aria-label',(port==='source'?'Enviar de ':'Receber em ')+d.title+' '+(index+1));
+  if(port==='sink'&&d.inputLabels?.[index])b.title=d.inputLabels[index];if(count>1)b.style.top=(64+index*26)+'px';b.setAttribute('aria-label',(port==='source'?'Enviar de ':'Receber em ')+d.title+' '+(index+1));
   if(port==='source'){b.onpointerdown=e=>{if(e.button!==0||busy)return;armed={id:node.id,port:index};$('viewport').dataset.editing='true';b.setPointerCapture(e.pointerId);draw();};b.onclick=e=>{if(e.detail===0){armed=armed?.id===node.id&&armed?.port===index?null:{id:node.id,port:index};draw();}};}else b.onclick=()=>connect(node.id,index);root.append(b);
  }
  root.addEventListener('click',e=>{if(e.target.closest('.node-title')&&!e.target.closest('button'))studio.select(node.id);});

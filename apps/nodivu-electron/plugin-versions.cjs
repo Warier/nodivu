@@ -11,7 +11,7 @@ async function metadata(folder,id){
  const stat=await fs.lstat(file);if(stat.isSymbolicLink()||stat.size>16384)throw new Error('Metadados de pacote inválidos.');
  const m=JSON.parse(await fs.readFile(file,'utf8'));
  if(!m||m.schema_version!==1||m.plugin_id!==id||!versionValid(m.version)||typeof m.author!=='string'||!m.author.trim()||m.author.length>128)throw new Error('nodivu-package.json exige schema 1, mesmo plugin_id, versão x.y.z e autor.');
- if(m.host_api!==undefined&&m.host_api!==1)throw new Error('Este pacote requer outro contrato do Nodivu.');
+ if(m.host_api!==undefined&&![1,2].includes(m.host_api))throw new Error('Este pacote requer outro contrato do Nodivu.');
  if(m.platform!==undefined&&m.platform!==`${process.platform}-${process.arch}`)throw new Error('Pacote incompatível com este sistema/arquitetura.');
  if(m.repository!==undefined){const url=new URL(m.repository);if(url.protocol!=='https:'||url.username||url.password)throw new Error('Repositório exige HTTPS.');}
  if(m.resource_tier!==undefined&&!['light','moderate','heavy','unknown'].includes(m.resource_tier))throw new Error('Categoria de consumo inválida.');

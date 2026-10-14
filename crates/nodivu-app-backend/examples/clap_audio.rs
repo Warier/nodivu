@@ -119,7 +119,7 @@ mod run {
                 |processor| {
                     let mut effect = LiveEffect::prepare(processor, &effect_controls)?;
                     let mut first_error = None;
-                    let result = audio.run(&mut |block: StereoMut<'_>, _| {
+                    let result = audio.run(&mut |block: StereoMut<'_>, _, _| {
                         if first_error.is_some() {
                             return false;
                         }

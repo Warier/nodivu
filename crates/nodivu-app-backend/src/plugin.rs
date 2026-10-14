@@ -66,7 +66,7 @@ impl Control {
             && self.group.len() <= 64
             && self.page.chars().count() <= 48
             && self.help.chars().count() <= 320
-            && ["slider", "number", "toggle", "select"].contains(&self.widget.as_str())
+            && ["slider", "number", "toggle", "select", "momentary"].contains(&self.widget.as_str())
             && !(self.quick && self.advanced)
             && if self.widget == "select" {
                 (2..=32).contains(&self.options.len())
@@ -83,7 +83,8 @@ impl Control {
             }
     }
     pub(crate) fn fits_parameter(&self, min: f64, max: f64, stepped: bool) -> bool {
-        (self.widget != "toggle" || (min == 0.0 && max == 1.0 && stepped))
+        (!["toggle", "momentary"].contains(&self.widget.as_str())
+            || (min == 0.0 && max == 1.0 && stepped))
             && self
                 .options
                 .iter()
@@ -112,7 +113,9 @@ impl Package {
                 .iter()
                 .find(|p| p.id == c.parameter)
                 .ok_or(Error::Contract("Parâmetro visual ausente"))?;
-            if !c.fits_parameter(p.min, p.max, p.stepped) {
+            if !c.fits_parameter(p.min, p.max, p.stepped)
+                || (c.widget == "momentary" && (p.default != 0.0 || p.readonly))
+            {
                 return Err(Error::Contract(
                     "Controle visual incompatível com limites/tipo do parâmetro",
                 ));
@@ -173,7 +176,7 @@ impl Package {
 pub struct PluginBackend {
     controls: Arc<PluginControls>,
     slots: Vec<Option<NodeId>>,
-    packages: Vec<(String, Vec<Parameter>, bool, bool)>,
+    packages: Vec<(String, Vec<Parameter>, bool, bool, bool)>,
     files: Vec<String>,
     capture_selections: Vec<Option<nodivu_core::capture::CaptureSelection>>,
     catalog: Value,
@@ -221,12 +224,13 @@ impl PluginBackend {
             let file_transport = owners[i * MAX_PLUGIN_NODES]
                 .file_transport("status", None)
                 .is_ok();
-            catalog.push(json!({"latency_frames":metadata.latency_frames,"capture_source":owners[i * MAX_PLUGIN_NODES].capture_snapshot().is_ok(),"file_transport":file_transport,"id":metadata.id,"name":metadata.name,"appearance":appearance,"parameters":parameters,"source":!metadata.has_input,"consumer":!metadata.has_output,"inputs":if metadata.has_input {vec![0]} else {vec![]},"outputs":if metadata.has_output {vec![0]} else {vec![]},"file_player":file_player}));
+            catalog.push(json!({"latency_frames":metadata.latency_frames,"capture_source":owners[i * MAX_PLUGIN_NODES].capture_snapshot().is_ok(),"file_transport":file_transport,"id":metadata.id,"name":metadata.name,"appearance":appearance,"parameters":parameters,"source":!metadata.has_input,"consumer":!metadata.has_output,"inputs":if metadata.has_sidechain {vec![0,1]} else if metadata.has_input {vec![0]} else {vec![]},"input_labels":if metadata.has_sidechain {vec!["Áudio", "Referência"]} else {vec!["Áudio"]},"outputs":if metadata.has_output {vec![0]} else {vec![]},"file_player":file_player}));
             specs.push((
                 metadata.id.clone(),
                 parameters,
                 !metadata.has_input,
                 !metadata.has_output,
+                metadata.has_sidechain,
             ));
         }
         for package in workers {
@@ -243,11 +247,29 @@ impl PluginBackend {
                 }],
                 false,
                 false,
+                false,
             ));
         }
         let count = owners.len() + workers.len() * MAX_PLUGIN_NODES;
         let (send, receive) = mpsc::sync_channel(1);
+        let gestures: Vec<Vec<u32>> = packages
+            .iter()
+            .map(|p| {
+                p.appearance
+                    .controls
+                    .iter()
+                    .filter(|c| c.widget == "momentary")
+                    .map(|c| c.parameter)
+                    .collect()
+            })
+            .chain(workers.iter().map(|_| vec![]))
+            .collect();
         let controls = Arc::new(PluginControls {
+            epoch: std::time::Instant::now(),
+            gestures,
+            leases: (0..count)
+                .map(|_| std::array::from_fn(|_| AtomicU64::new(0)))
+                .collect(),
             capture: capture::CaptureControls::prepare(owners)?,
             slots: (0..count).map(|_| InstanceMailbox::default()).collect(),
             status: (0..count)
@@ -317,8 +339,37 @@ impl DeviceBackend for PluginBackend {
     fn plugin_catalog(&self) -> Value {
         self.catalog.clone()
     }
+    fn plugin_gesture(
+        &mut self,
+        id: NodeId,
+        parameter: u32,
+        pressed: bool,
+    ) -> Result<(), BackendError> {
+        let slot = self
+            .slots
+            .iter()
+            .position(|s| *s == Some(id))
+            .ok_or_else(|| invalid("Bloco não encontrado"))?;
+        let package = slot / MAX_PLUGIN_NODES;
+        if !self.controls.gestures[package].contains(&parameter) {
+            return Err(invalid("Parâmetro não é momentâneo"));
+        }
+        let index = self.packages[package]
+            .1
+            .iter()
+            // Slots use the original metadata index, including read-only parameters.
+            .position(|p| p.id == parameter && !p.readonly)
+            .ok_or_else(|| invalid("Parâmetro ausente"))?;
+        let expiry = if pressed {
+            self.controls.epoch.elapsed().as_millis() as u64 + 350
+        } else {
+            0
+        };
+        self.controls.leases[slot][index].store(expiry, SeqCst);
+        Ok(())
+    }
     fn plugin_block(&self, id: &str) -> Result<Block, BackendError> {
-        let (id, parameters, source, consumer) = self
+        let (id, parameters, source, consumer, sidechain) = self
             .packages
             .iter()
             .find(|p| p.0 == id)
@@ -327,6 +378,7 @@ impl DeviceBackend for PluginBackend {
             plugin_id: id.clone(),
             source: *source,
             consumer: *consumer,
+            sidechain: *sidechain,
             parameters: parameters
                 .iter()
                 .filter(|p| !p.readonly)
@@ -342,16 +394,18 @@ impl DeviceBackend for PluginBackend {
                 parameters,
                 source,
                 consumer,
+                sidechain,
                 ..
             } = &node.block
             {
-                let (_, specs, expected_source, expected_consumer) = self
+                let (_, specs, expected_source, expected_consumer, expected_sidechain) = self
                     .packages
                     .iter()
                     .find(|p| &p.0 == plugin_id)
                     .ok_or_else(|| invalid("Plugin não encontrado"))?;
                 if source != expected_source
                     || consumer != expected_consumer
+                    || sidechain != expected_sidechain
                     || parameters.len() != specs.iter().filter(|p| !p.readonly).count()
                 {
                     return Err(invalid("Identidade ou conjunto de parâmetros inválido"));
@@ -363,6 +417,17 @@ impl DeviceBackend for PluginBackend {
                     .is_some_and(|i| self.packages[i / MAX_PLUGIN_NODES].0 != *plugin_id)
                 {
                     return Err(invalid("Tipo de plugin de um UUID é imutável"));
+                }
+                let package = self
+                    .packages
+                    .iter()
+                    .position(|p| &p.0 == plugin_id)
+                    .ok_or_else(|| invalid("Plugin ausente"))?;
+                if self.controls.gestures[package]
+                    .iter()
+                    .any(|id| parameters.get(id) != Some(&0.0))
+                {
+                    return Err(invalid("Gesto momentâneo não pode ser salvo no projeto"));
                 }
                 // Validar o lote inteiro antes de publicar qualquer valor.
                 for (id, value) in parameters {
@@ -393,6 +458,9 @@ impl DeviceBackend for PluginBackend {
             }) {
                 self.controls.capture.clear(index)?;
                 self.capture_selections[index] = None;
+                for lease in &self.controls.leases[index] {
+                    lease.store(0, SeqCst);
+                }
                 *slot = None;
             }
         }
@@ -422,6 +490,9 @@ impl DeviceBackend for PluginBackend {
                     })
                     .ok_or_else(|| invalid("Pool de plugins cheio"))?;
                 if self.slots[index] != Some(node.id) {
+                    for lease in &self.controls.leases[index] {
+                        lease.store(0, SeqCst);
+                    }
                     self.files[index].clear();
                     self.controls.capture.clear(index)?;
                     self.capture_selections[index] = None;
@@ -641,6 +712,9 @@ impl InstanceMailbox {
 }
 type FileCommand = (usize, String, Option<String>, Option<u32>);
 pub struct PluginControls {
+    epoch: std::time::Instant,
+    gestures: Vec<Vec<u32>>,
+    leases: Vec<[AtomicU64; 32]>,
     capture: capture::CaptureControls,
     native_count: usize,
     workers: Vec<crate::python_worker::Package>,
@@ -743,7 +817,7 @@ pub fn worker(
             }
         }
         let mut failure = None;
-        let _audio_result = run.run(&mut |audio, id| {
+        let _audio_result = run.run(&mut |audio, id, sidechain| {
             if effects.first().is_some_and(|effect| effect.cancelled()) {
                 stop();
                 return false;
@@ -786,14 +860,24 @@ pub fn worker(
                         .map_err(|_| Error::Contract("Buffer/controle do worker inválido"));
                 }
                 for &(i, id) in &parameters[index] {
-                    controls[index].set_parameter(id, state.values[i])?;
+                    let value = if mailbox.gestures[index / MAX_PLUGIN_NODES].contains(&id.0) {
+                        f64::from(
+                            mailbox.leases[index][i].load(SeqCst)
+                                > mailbox.epoch.elapsed().as_millis() as u64,
+                        )
+                    } else {
+                        state.values[i]
+                    };
+                    controls[index].set_parameter(id, value)?;
                 }
                 controls[index].set_bypass(state.bypass);
                 if cached[index].id != Some(id) {
                     effects[index].reset()?;
                 }
                 cached[index] = state;
-                effects[index].process(audio).map(|_| ())
+                effects[index]
+                    .process_with_sidechain(audio, sidechain)
+                    .map(|_| ())
             })();
             if let Err(error) = result {
                 failure = Some(error);

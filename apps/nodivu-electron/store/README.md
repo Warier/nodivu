@@ -1,3 +1,3 @@
-# Origem confiável da loja
+# Origem da loja
 
-Sem source.json nesta entrega: o catálogo público ainda não foi publicado. Não inserir chaves privadas aqui. Veja PLUGIN-STORE.md na raiz para configurar uma origem TUF revisada; o build inclui apenas sua raiz pública e URLs. O ensaio usa origem loopback e chaves efêmeras separadas.
+source.json inclui somente URLs e raiz pública TUF do catálogo experimental https://github.com/Warier/nodivu-plugins . Chaves privadas permanecem fora do app/Git. Veja a política de operação/renovação nesse repositório. Novos itens compatíveis não exigem recompilar o host.

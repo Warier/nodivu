@@ -255,7 +255,7 @@ impl Bus {
             self.timings[2].finish(start, output.len(), RATE);
         }
         let start = Instant::now();
-        let mut measured = |audio: StereoMut<'_>, id| {
+        let mut measured = |audio: StereoMut<'_>, id, sidechain: Option<(&[f32], &[f32])>| {
             let Some(effect) = effect.as_deref_mut() else {
                 return false;
             };
@@ -264,7 +264,7 @@ impl Bus {
             }
             let started = Instant::now();
             let frames = audio.left.len();
-            let ok = effect(StereoMut::new(audio.left, audio.right), id);
+            let ok = effect(StereoMut::new(audio.left, audio.right), id, sidechain);
             self.external_timing.finish(started, frames, RATE);
             for sample in audio.left.iter().chain(audio.right.iter()) {
                 self.external_output_peak = self.external_output_peak.max(sample.abs());
@@ -395,7 +395,7 @@ mod tests {
                 bus.push([0.25; 2]);
             }
             let mut out = [[0.0; 2]; BLOCK_FRAMES];
-            let mut source = |audio: StereoMut<'_>, _| {
+            let mut source = |audio: StereoMut<'_>, _, _: Option<(&[f32], &[f32])>| {
                 audio.left.fill(0.25);
                 audio.right.fill(0.25);
                 true
@@ -430,7 +430,7 @@ mod tests {
         bus.pipeline.plan.count = 1;
         let mut out = [[0.0; 2]; BLOCK_FRAMES];
         let mut calls = 0;
-        let mut effect = |audio: StereoMut<'_>, _| {
+        let mut effect = |audio: StereoMut<'_>, _, _: Option<(&[f32], &[f32])>| {
             calls += 1;
             assert_eq!(audio.left.len(), BLOCK_FRAMES);
             assert!(audio.left.iter().all(|v| *v == 0.5));
@@ -446,7 +446,7 @@ mod tests {
         assert!(out.iter().flatten().all(|v| *v == 0.0));
         assert_eq!(bus.external_timing.calls, 1);
         bus.set_target(1.0);
-        let mut failure = |audio: StereoMut<'_>, _| {
+        let mut failure = |audio: StereoMut<'_>, _, _: Option<(&[f32], &[f32])>| {
             audio.left.fill(1.0);
             audio.right.fill(1.0);
             false
@@ -460,7 +460,7 @@ mod tests {
     fn external_effect_is_not_called_for_empty_or_oversized_blocks() {
         let mut bus = Bus::new(RATE);
         let mut called = false;
-        let mut effect = |_: StereoMut<'_>, _| {
+        let mut effect = |_: StereoMut<'_>, _, _: Option<(&[f32], &[f32])>| {
             called = true;
             true
         };

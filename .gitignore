@@ -4,6 +4,7 @@
 !/.gitattributes
 !/.editorconfig
 !/README.md
+!/PLUGIN-NATIVE.md
 !/PLUGIN-UI.md
 !/PLUGIN-PACKAGE.md
 !/PLUGIN-STORE.md

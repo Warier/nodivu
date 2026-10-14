@@ -26,7 +26,7 @@ function validateCatalog(data,officialPublishers=[]){
   return {id:p.id,version:p.version,title:p.title,author:p.author,publisherId:p.publisher_id,description:p.description,
    archive:p.archive,readme:p.readme,images,logo:p.logo||null,downloadBytes:p.download_bytes,resourceTier:p.resource_tier,
    platform:p.platform,hostApi:p.host_api,repository:p.repository||'',official:officialPublishers.includes(p.publisher_id),
-   compatible:p.platform===`${process.platform}-${process.arch}`&&p.host_api===1};
+   compatible:p.platform===`${process.platform}-${process.arch}`&&[1,2].includes(p.host_api)};
  });
 }
 

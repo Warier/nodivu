@@ -1,5 +1,7 @@
 # Interface de plugins no Estúdio
 
+**Atualização 2026-10-13:** catálogo experimental em [nodivu-plugins](https://github.com/Warier/nodivu-plugins), com Ducking e Botão de fala separados. O host de desenvolvimento aceita API 1 e 2; a release original 0.2.0 aceita apenas API 1 e não contém este bootstrap. [Contrato API 2](PLUGIN-NATIVE.md): segunda entrada CLAP e widget momentary. Renovação/custódia documentadas no repo do catálogo.
+
 O Nodivu desenha o bloco compacto e seu painel de configurações a partir do manifesto. O autor descreve a apresentação; o processamento continua no plugin CLAP ou no perfil de worker suportado. Alterar uma configuração envia o valor ao mesmo parâmetro e UUID usados pelo backend, sem recriar o dispositivo de áudio.
 
 Esta extensão é implementada em outubro de 2026. Manifestos anteriores continuam aceitos. Para usar os campos novos, é necessário um host que inclua esta atualização: versões antigas rejeitam campos desconhecidos. `schema_version: 1` e a ABI CLAP permanecem iguais; não há uma nova ABI visual.

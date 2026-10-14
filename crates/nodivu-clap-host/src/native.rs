@@ -166,6 +166,7 @@ pub struct Metadata {
     pub id: String,
     pub name: String,
     pub has_input: bool,
+    pub has_sidechain: bool,
     pub has_output: bool,
     pub supports_in_place: bool,
     pub latency_frames: u32,
@@ -440,6 +441,7 @@ impl OfflinePlugin {
                     id: id.to_string_lossy().into_owned(),
                     name,
                     has_input: false,
+                    has_sidechain: false,
                     has_output: true,
                     supports_in_place: false,
                     latency_frames: 0,
@@ -575,9 +577,9 @@ impl OfflinePlugin {
             let count = required(ports.count)?;
             let inputs = count(self.plugin, true);
             let outputs = count(self.plugin, false);
-            if inputs > 1 || outputs > 1 || inputs + outputs == 0 {
+            if inputs > 2 || outputs > 1 || inputs + outputs == 0 || (inputs == 2 && outputs != 1) {
                 return Err(Error::Contract(
-                    "Perfil exige fonte, efeito ou consumidor com um bus por direção",
+                    "Perfil exige até dois buses de entrada (principal/referência) e uma saída",
                 ));
             }
             let mut input: clap_audio_port_info = std::mem::zeroed();
@@ -589,13 +591,34 @@ impl OfflinePlugin {
             if outputs == 1 {
                 validate_port(&output)?;
             }
-            if inputs == 1 {
+            if inputs >= 1 {
                 if !info(self.plugin, 0, true, &mut input) {
                     return Err(Error::Contract("Porta de entrada inválida"));
                 }
                 validate_port(&input)?;
             }
-            self.metadata.has_input = inputs == 1;
+            if inputs == 2 {
+                let mut side: clap_audio_port_info = std::mem::zeroed();
+                if !info(self.plugin, 1, true, &mut side) {
+                    return Err(Error::Contract("Referência CLAP ausente"));
+                }
+                validate_port(&side)?;
+                if side.id == input.id
+                    || side.flags & CLAP_AUDIO_PORT_IS_MAIN != 0
+                    || side.in_place_pair != CLAP_INVALID_ID
+                {
+                    return Err(Error::Contract(
+                        "Referência deve ser distinta, secundária e sem alias",
+                    ));
+                }
+            }
+            if (inputs > 0 && input.flags & CLAP_AUDIO_PORT_IS_MAIN == 0)
+                || (outputs > 0 && output.flags & CLAP_AUDIO_PORT_IS_MAIN == 0)
+            {
+                return Err(Error::Contract("Bus principal não declarado"));
+            }
+            self.metadata.has_input = inputs > 0;
+            self.metadata.has_sidechain = inputs == 2;
             self.metadata.has_output = outputs == 1;
             self.metadata.supports_in_place = inputs == 1
                 && outputs == 1
@@ -876,7 +899,7 @@ impl AudioProcessor<'_> {
         let frames = self.validate(audio.left.len(), audio.right.len(), events)?;
         let pointers = [audio.left.as_mut_ptr(), audio.right.as_mut_ptr()];
         // SAFETY: empréstimos exclusivos disjuntos, mesmo comprimento; plugin negociou alias in-place.
-        unsafe { self.process_raw(Some(pointers), pointers, frames, events) }
+        unsafe { self.process_raw(Some(pointers), None, pointers, frames, events) }
     }
     /// Buffers distintos: entrada somente leitura, saída disjunta. Fonte usa input=None.
     pub fn process(
@@ -885,7 +908,22 @@ impl AudioProcessor<'_> {
         output: StereoMut<'_>,
         events: &[ParameterEvent],
     ) -> Result<ProcessStatus> {
+        self.process_with_sidechain(input, None, output, events)
+    }
+    /// The second bus is borrowed only for this call; no allocation or cross-node queue.
+    pub fn process_with_sidechain(
+        &mut self,
+        input: Option<(&[f32], &[f32])>,
+        sidechain: Option<(&[f32], &[f32])>,
+        output: StereoMut<'_>,
+        events: &[ParameterEvent],
+    ) -> Result<ProcessStatus> {
         let frames = self.validate(output.left.len(), output.right.len(), events)?;
+        if sidechain.is_some() != self.metadata.has_sidechain
+            || sidechain.is_some_and(|(l, r)| l.len() != frames || r.len() != frames)
+        {
+            return Err(Error::Contract("Bus de referência incompatível"));
+        }
         if input.is_some() != self.metadata.has_input {
             return Err(Error::Contract("Entrada incompatível com as portas"));
         }
@@ -899,6 +937,7 @@ impl AudioProcessor<'_> {
         unsafe {
             self.process_raw(
                 input,
+                sidechain.map(|(l, r)| [l.as_ptr().cast_mut(), r.as_ptr().cast_mut()]),
                 [output.left.as_mut_ptr(), output.right.as_mut_ptr()],
                 frames,
                 events,
@@ -943,6 +982,7 @@ impl AudioProcessor<'_> {
     unsafe fn process_raw(
         &mut self,
         input: Option<[*mut f32; 2]>,
+        sidechain: Option<[*mut f32; 2]>,
         mut output: [*mut f32; 2],
         frames: usize,
         events: &[ParameterEvent],
@@ -981,13 +1021,23 @@ impl AudioProcessor<'_> {
             try_push: Some(reject_event),
         };
         let mut input_pointers = input.unwrap_or([ptr::null_mut(); 2]);
-        let input_buffer = clap_audio_buffer {
-            data32: input_pointers.as_mut_ptr(),
-            data64: ptr::null_mut(),
-            channel_count: 2,
-            latency: 0,
-            constant_mask: 0,
-        };
+        let mut side_pointers = sidechain.unwrap_or([ptr::null_mut(); 2]);
+        let input_buffers = [
+            clap_audio_buffer {
+                data32: input_pointers.as_mut_ptr(),
+                data64: ptr::null_mut(),
+                channel_count: 2,
+                latency: 0,
+                constant_mask: 0,
+            },
+            clap_audio_buffer {
+                data32: side_pointers.as_mut_ptr(),
+                data64: ptr::null_mut(),
+                channel_count: 2,
+                latency: 0,
+                constant_mask: 0,
+            },
+        ];
         let mut output_buffer = clap_audio_buffer {
             data32: output.as_mut_ptr(),
             data64: ptr::null_mut(),
@@ -1000,7 +1050,7 @@ impl AudioProcessor<'_> {
             frames_count: frames as u32,
             transport: ptr::null(),
             audio_inputs: if input.is_some() {
-                &input_buffer
+                input_buffers.as_ptr()
             } else {
                 ptr::null()
             },
@@ -1009,7 +1059,7 @@ impl AudioProcessor<'_> {
             } else {
                 ptr::null_mut()
             },
-            audio_inputs_count: u32::from(input.is_some()),
+            audio_inputs_count: u32::from(input.is_some()) + u32::from(sidechain.is_some()),
             audio_outputs_count: u32::from(self.metadata.has_output),
             in_events: &in_events,
             out_events: &out_events,
@@ -1097,11 +1147,7 @@ unsafe fn text(pointer: *const c_char) -> Result<String> {
 }
 // SAFETY: port_type válido/nulo conforme contrato CLAP.
 unsafe fn validate_port(port: &clap_audio_port_info) -> Result<()> {
-    if port.id == CLAP_INVALID_ID
-        || port.channel_count != 2
-        || port.flags & CLAP_AUDIO_PORT_IS_MAIN == 0
-        || port.port_type.is_null()
-    {
+    if port.id == CLAP_INVALID_ID || port.channel_count != 2 || port.port_type.is_null() {
         return Err(Error::Contract("Perfil exige porta principal estéreo"));
     }
     // SAFETY: string de tipo válida pertencente à biblioteca viva.
