@@ -1,6 +1,6 @@
 {
   "name": "nodivu-electron",
-  "version": "0.2.1-dev.1",
+  "version": "0.2.1-dev.2",
   "private": true,
   "description": "Canvas local de áudio Nodivu com motor Rust",
   "main": "main.cjs",

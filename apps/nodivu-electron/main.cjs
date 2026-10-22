@@ -1,4 +1,4 @@
-const { app, dialog, BrowserWindow, ipcMain, protocol, session, shell } = require('electron');
+const { app, dialog, BrowserWindow, ipcMain, protocol, session, shell, Menu, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { Engine } = require('./engine.cjs');
@@ -14,6 +14,7 @@ let projectPath = null, projectDirty = false, confirmingClose = false;
 const PAGE = 'nodivu://app/index.html';
 const commands = new Set(['system.hello','plugins.list','capture.targets','capture.configure','plugin.command','plugin.gesture','devices.list','session.snapshot','node.add','graph.apply','audio.mute','audio.retry','audio.monitor']);
 const executable = app.isPackaged ? path.join(__dirname, 'bin/nodivu-app-backend.exe') : path.resolve(__dirname, '../../target/release/nodivu-app-backend.exe');
+let hotkeys, hotkeyRequest=null;
 let win, engine, pluginManager, pluginCatalog, pluginOperation=false, quitting = false, exitCode = 0;
 const recoveryTest=process.argv.includes('--smoke-test')&&process.argv.includes('--test-recovery');
 const recoveryTestId=process.env.NODIVU_RECOVERY_TEST_ID;
@@ -46,6 +47,7 @@ function trusted(event) {
 async function shutdown() {
   if (quitting) return;
   quitting = true;
+  hotkeys?.close();
   if (engine) await engine.stop();
   diagnostics.record('app.exit', {code:exitCode});
   await Promise.race([diagnostics.flush(), new Promise(resolve=>setTimeout(resolve,1000))]);
@@ -68,7 +70,7 @@ app.whenReady().then(async () => {
     const url = new URL(request.url);
     const vendors={'/vendor/marked.js':'marked/lib/marked.esm.js','/vendor/purify.js':'dompurify/dist/purify.es.mjs'};
     if(url.host==='app'&&Object.hasOwn(vendors,url.pathname))return new Response(await fs.readFile(path.join(__dirname,'node_modules',vendors[url.pathname])),{headers:{'Content-Type':'text/javascript'}});
-    const files = { '/index.html': 'text/html', '/renderer.js': 'text/javascript', '/viewport.js': 'text/javascript', '/momentary.mjs': 'text/javascript', '/virtual-cable.mjs': 'text/javascript', '/playback-state.mjs': 'text/javascript', '/capture-source.mjs': 'text/javascript', '/style.css': 'text/css', '/studio.css': 'text/css', '/studio.js': 'text/javascript', '/plugin-manager.js': 'text/javascript', '/plugin-manager.css': 'text/css', ...Object.fromEntries(['index','capture','output','gain','tone','plugin','mixer','meter'].map(name => ['/blocks/'+name+'.js','text/javascript'])) };
+    const files = { '/index.html': 'text/html', '/renderer.js': 'text/javascript', '/viewport.js': 'text/javascript', '/momentary.mjs': 'text/javascript', '/hotkey-actions.mjs': 'text/javascript', '/hotkeys.js': 'text/javascript', '/hotkeys.css': 'text/css', '/virtual-cable.mjs': 'text/javascript', '/playback-state.mjs': 'text/javascript', '/capture-source.mjs': 'text/javascript', '/style.css': 'text/css', '/studio.css': 'text/css', '/studio.js': 'text/javascript', '/plugin-manager.js': 'text/javascript', '/plugin-manager.css': 'text/css', ...Object.fromEntries(['index','capture','output','gain','tone','plugin','mixer','meter'].map(name => ['/blocks/'+name+'.js','text/javascript'])) };
     if (url.host !== 'app' || !Object.hasOwn(files, url.pathname)) return new Response('', { status: 404 });
     return new Response(await fs.readFile(path.join(__dirname, 'ui', url.pathname.slice(1))),
       { headers: { 'Content-Type': files[url.pathname] + '; charset=utf-8' } });
@@ -76,10 +78,38 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   win = new BrowserWindow({ width: 1440, height: 900, minWidth: 960, minHeight: 650,
-    title: 'Nodivu — projeto de áudio', backgroundColor: '#101319', autoHideMenuBar: true,
+    title: 'Nodivu — projeto de áudio', backgroundColor: '#101319', autoHideMenuBar: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true,
       nodeIntegration: false, backgroundThrottling: false } });
-  win.removeMenu();
+  require('./app-menu.cjs')({Menu,win});
+  hotkeys=new (require('./hotkeys.cjs').Hotkeys)(path.join(app.getPath('userData'),'hotkeys.json'),globalShortcut,async binding=>{
+    if(binding.action==='app.show'){win.show();win.restore();win.focus();return;}
+    if(win.isDestroyed()||win.webContents.isLoading())throw Error('A interface ainda não está pronta.');
+    return new Promise((resolve,reject)=>{
+      const token=require('node:crypto').randomUUID();
+      const timer=setTimeout(()=>{hotkeyRequest=null;reject(Error('Interface sem resposta ao atalho.'));},7000);
+      hotkeyRequest={token,resolve,reject,timer};win.webContents.send('hotkeys:execute',{token,binding});
+    });
+  });
+  hotkeys.on('change',state=>{if(!win.isDestroyed())win.webContents.send('hotkeys:state',state);});
+  await hotkeys.init();
+  ipcMain.on('hotkeys:context',(event,actions)=>{trusted(event);try{hotkeys.setActions(actions);}catch(e){diagnostics.record('hotkeys.context',{message:e.message});}});
+  ipcMain.on('hotkeys:result',(event,result)=>{
+    trusted(event);if(!hotkeyRequest||result?.token!==hotkeyRequest.token)return;
+    const pending=hotkeyRequest;hotkeyRequest=null;clearTimeout(pending.timer);
+    if(result.ok)pending.resolve();else{diagnostics.record('hotkeys.action',{message:String(result.error)});pending.reject(Error(result.error||'Ação não executada.'));}
+  });
+  ipcMain.handle('hotkeys:manage',async(event,action,payload)=>{
+    trusted(event);
+    try{
+      if(action==='save')await hotkeys.save(payload);
+      else if(action==='suspend'){if(typeof payload!=='boolean')throw Error('Estado inválido.');hotkeys.suspend(payload);}
+      else if(action==='test'){if(!await hotkeys.fire(payload?.id,{test:true}))throw Error(hotkeys.lastResult?.message||'Ação não disponível.');}
+      else if(action!=='list')throw Error('Ação de atalhos desconhecida.');
+      return {ok:true,state:hotkeys.snapshot()};
+    }catch(e){return {ok:false,error:e.message};}
+  });
+  win.webContents.on('before-input-event',(event,input)=>{if(hotkeys.local(input))event.preventDefault();});
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
   win.webContents.on('will-attach-webview', event => event.preventDefault());
@@ -289,6 +319,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('plugin:choose-file',async event=>{trusted(event);const result=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Áudio · MP3, WAV, M4A',extensions:['mp3','wav','m4a']}]});return result.canceled?null:result.filePaths[0];});
   ipcMain.handle('engine:restart', async event => { trusted(event); await engine.stop(); startEngine(); });
   await win.loadURL(PAGE);
+  if(process.argv.includes('--smoke-test')&&process.argv.includes('--test-hotkeys')){
+    try{await require('./smoke-hotkeys.cjs')(win,hotkeys);}catch(error){console.error(error);exitCode=1;}await shutdown();return;
+  }
   if(storeTest&&process.argv.includes('--test-utility-store')){
     try{await require('./smoke-utility-store.cjs')(win,pluginManager);}catch(error){console.error(error);exitCode=1;}
     await shutdown();return;

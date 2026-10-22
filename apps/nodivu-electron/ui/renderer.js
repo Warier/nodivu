@@ -1,3 +1,5 @@
+import {openHotkeys} from './hotkeys.js';
+import {actionsFor,changeField} from './hotkey-actions.mjs';
 import { mountMomentary } from './momentary.mjs';
 import { createStudio, arrangeSettings } from './studio.js';
 import { mountCapture, syncCapture } from './capture-source.mjs';
@@ -13,6 +15,7 @@ const $=id=>document.getElementById(id);
 window.addEventListener('error',event=>window.nodivu.reportFault(event.message));
 window.addEventListener('unhandledrejection',event=>window.nodivu.reportFault(event.reason?.message||String(event.reason)));
 let snapshot=null,devices=[],online=false,busy=false,polling=null,minimized=false,message='',armed=null,drag=null;
+let hotkeyContextStamp='',hotkeyContextRevision='';
 let deviceIssue='',monitorListStamp='';
 const positions=new Map(),views=new Map(),pending=new Map(),resources=new Map(),savedCaptures=new Map(),playerErrors=new Map();let editTimer;
 let savedStamp=null,projectPath='',lastDirty=null;
@@ -174,6 +177,7 @@ function buildContents(node,d,surface){
  if(d.captureSource)mountCapture(content,node.id,{api,perform,schedule:action=>{const attempt=()=>{if(!views.has(node.id)||!content.isConnected)return;if(busy||polling){setTimeout(attempt,80);return;}void perform(action);};setTimeout(attempt,0);},configure:async(id,selection,token)=>{await settleEdits();apply(await api('capture.configure',{node_id:id,selection,...(token?{token}:{})}));}});
  if(d.worker){const status=el('p','','small'),restart=el('button','Reiniciar worker');status.dataset.workerStatus='';restart.dataset.action='restart';restart.onclick=()=>void perform(async()=>apply(await api('plugin.command',{node_id:node.id,action:'restart'})));content.append(status,restart);}
  const note=el('p',d.note,'small');note.dataset.blockNote='';content.append(note);
+ if(surface==='inspector'){const shortcuts=el('button','⌨ Atalhos deste bloco');shortcuts.dataset.action='hotkeys';shortcuts.onclick=()=>void openHotkeys(node.id);content.append(shortcuts);}
  content.dataset.surface=surface;content.dataset.owner=node.id;return {root:content,fields,deviceStamp:''};
 }
 function build(node){
@@ -228,6 +232,7 @@ function wires(){const stamp=JSON.stringify(snapshot.graph.edges)+snapshot.graph
 }
 function meter(id,peak){const db=Number.isFinite(peak)&&peak>0?20*Math.log10(peak):-Infinity;$(id+'-meter').value=Math.max(0,Math.min(1,(db+60)/60));$(id+'-db').textContent=Number.isFinite(db)?db.toFixed(1)+' dBFS':'Silêncio';}
 function render(){
+ const contextRevision=String(online)+':'+snapshot?.revision;if(contextRevision!==hotkeyContextRevision){hotkeyContextRevision=contextRevision;const context=actionsFor(online?snapshot:null,descriptor);const contextStamp=JSON.stringify(context);if(contextStamp!==hotkeyContextStamp){hotkeyContextStamp=contextStamp;window.nodivu.hotkeyContext(context);}}
  $('project-recents').disabled=!online||busy||$('project-recents').options.length<2;
  const cable=cableInventory(devices);$('cable-status').textContent=cable.message;$('cable-setup').dataset.state=cable.state;$('cable-route').textContent=cableRouteMessage(snapshot,devices);$('virtual-output').disabled=!online||busy;
  $('reconnect').hidden=online;for(const id of['mute-all','refresh','retry','quick-start','project-save','project-open'])$(id).disabled=!online||busy;$('reconnect').disabled=busy;document.body.dataset.ready=String(online);document.body.dataset.busy=String(busy);
@@ -292,7 +297,7 @@ $('virtual-output').onclick=()=>void perform(async()=>{await settleEdits();if(!s
 $('project-recents').onchange=()=>{const file=$('project-recents').value;$('project-recents').value='';if(file)projectAction('open-recent',file);};
 $('quick-start').onclick=()=>void perform(async()=>{for(const kind of['capture','output'])if(!snapshot.graph.nodes.some(n=>n.block.kind===kind))apply(await api('node.add',{expected_revision:snapshot.revision,kind}));});
 $('mute-all').onclick=()=>void perform(async()=>apply(await api('audio.mute',{muted:!snapshot.muted})));$('refresh').onclick=()=>void perform(refresh);$('retry').onclick=()=>void perform(activateAudio);$('reconnect').onclick=()=>void perform(reconnect);$('center').onclick=organize;$('project-save').onclick=()=>projectAction('save');$('project-open').onclick=()=>projectAction('open');
-document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&['s','o'].includes(event.key.toLowerCase())){event.preventDefault();if(online&&!busy)projectAction(event.key.toLowerCase()==='s'?'save':'open');}});
+document.addEventListener('keydown',event=>{if(!event.defaultPrevented&&!document.querySelector('dialog[open]')&&(event.ctrlKey||event.metaKey)&&['s','o'].includes(event.key.toLowerCase())){event.preventDefault();if(online&&!busy)projectAction(event.key.toLowerCase()==='s'?'save':'open');}});
 document.addEventListener('pointermove',e=>{if(drag){const p={x:drag.left+(e.clientX-drag.x)/camera.scale,y:drag.top+(e.clientY-drag.y)/camera.scale};positions.set(drag.id,p);const root=views.get(drag.id).root;root.style.left=p.x+'px';root.style.top=p.y+'px';canvasSize();draw();updateDirty();}else if(armed&&e.buttons){draw(camera.world(e.clientX,e.clientY));}});
 document.addEventListener('pointerup',e=>{drag=null;$('viewport').dataset.editing='false';if(!armed||e.button!==0)return;for(const p of document.querySelectorAll('.port[data-port="sink"]')){const r=p.getBoundingClientRect();if(e.clientX>=r.left-8&&e.clientX<=r.right+8&&e.clientY>=r.top-8&&e.clientY<=r.bottom+8){connect(p.dataset.node,Number(p.dataset.portId));break;}}draw();});
 document.addEventListener('pointercancel',()=>{armed=null;drag=null;$('viewport').dataset.editing='false';draw();});window.addEventListener('blur',()=>{armed=null;drag=null;$('viewport').dataset.editing='false';draw();});document.addEventListener('keydown',e=>{if(e.key==='Escape'){armed=null;draw();}});window.addEventListener('resize',()=>draw());window.nodivu.onFault(error=>{online=false;message=error;render();});window.nodivu.onMinimized(v=>{minimized=v;});
@@ -381,3 +386,45 @@ $('recovery-discard').onclick=()=>void perform(async()=>{
 });
 
 $('recovery-quick-restore').onclick=()=>$('recovery-restore').click();
+
+// Hotkeys use the same validated edit/player paths as the visible controls.
+// Never replay a queue of gestures when a file dialog or project operation finishes.
+window.nodivu.onHotkey(async binding=>{
+ if(busy)throw Error('Operação em andamento. Tente o atalho novamente.');
+ if(document.querySelector('dialog[open]:not(#hotkeys-dialog)'))throw Error('Feche a janela de configuração antes de usar o atalho.');
+ let failure;
+ await perform(async()=>{try{
+  requireSession();await settleEdits();apply(await api('session.snapshot'));
+  const action=actionsFor(snapshot,descriptor).find(a=>a.id===binding.action);
+  if(!action)throw Error('O bloco/controle não está disponível neste projeto.');
+  if(action.operation.startsWith('mute.')){apply(await api('audio.mute',{muted:action.operation==='mute.toggle'?!snapshot.muted:action.operation==='mute.on'}));return;}
+  if(action.operation==='monitor.toggle'){
+   const endpoint=snapshot.monitor?.endpoint_id?null:$('monitor-device').value;
+   if(endpoint==='')throw Error('Selecione primeiro os fones na configuração de Escuta.');
+   apply(await api('audio.monitor',{endpoint_id:endpoint}));return;
+  }
+  const node=snapshot.graph.nodes.find(n=>n.id===action.nodeId);
+  if(!node)throw Error('Bloco ausente.');
+  if(action.operation.startsWith('player.')){
+   let op=action.operation.slice(7);const playing=snapshot.plugin_states?.[node.id]?.status===3;
+   if(op==='toggle')op=playing?'pause':'play';
+   if(op==='play'||op==='restart'){const ready=playerState(node,false);if(!ready.canPlay)throw Error(ready.reason);}
+   if(op==='stop'){await playerCommand(node.id,'pause');await playerCommand(node.id,'seek',undefined,0);}
+   else if(op==='restart'){await playerCommand(node.id,'seek',undefined,0);await playerCommand(node.id,'play');}
+   else await playerCommand(node.id,op);
+   return;
+  }
+  const field=descriptor(node).fields.find(f=>f.key===action.field);
+  if(!field||field.readonly||field.type==='momentary')throw Error('Controle não permite esta ação.');
+  await edit(g=>changeField(g.nodes.find(n=>n.id===node.id),{...action,min:field.min,max:field.max},binding.value));
+ }catch(e){failure=e;throw e;}});
+ if(failure)throw failure;
+});
+$('hotkeys-open').onclick=()=>void openHotkeys();
+window.nodivu.onMenu(action=>{
+ if(action==='hotkeys-selected'){void openHotkeys(selectedId);return;}
+ if(action==='updates-panel'){if($('app-settings').hidden)$('settings-toggle').click();$('updates-panel').scrollIntoView({block:'nearest'});return;}
+ if(document.querySelector('dialog[open]'))return;
+ const allowed=['project-open','project-save','project-folder','fit-view','center','library-toggle','inspect-selected','zoom-in','zoom-out','zoom-reset','mute-all','listen-shortcut','refresh','hotkeys-open','plugins-library','settings-toggle','diagnostics-open'];
+ if(allowed.includes(action))$(action).click();
+});

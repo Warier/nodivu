@@ -143,3 +143,8 @@ A versão nova é copiada para staging, conferida e agendada. Apenas na próxima
 **Detalhes** mostra README Markdown com títulos, listas, tabelas, código, links HTTPS e até 12 imagens locais de até 2 MiB cada. README limitado a 256 KiB. HTML é sanitizado; scripts, iframes, estilos, atributos de eventos e imagens externas não têm acesso ao renderer. Links relativos para outros documentos ainda aparecem sem navegação. README não pode acessar arquivos externos ao pacote nem executar ações do app.
 
 Verificação: testes de ZIP hostil/CRC, atualização, cancelamento, retorno à versão anterior, interrupção de troca, versão alterada no staging e preservação de pacotes atualizados. Smoke Electron com README hostil/tabela/imagem local e áudio real. Não equivale a auditoria do código dos plugins importados.
+
+
+## Atalhos personalizados
+
+Controles declarativos graváveis podem receber atalhos locais/globais pelo usuário, por UUID do bloco. Read-only e momentary não entram nessa lista. Consulte o [contrato de ações e atalhos](HOTKEYS.md#contrato-para-autores-de-plugins). Nenhum pacote pode instalar teclas automaticamente.

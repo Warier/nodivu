@@ -16,7 +16,7 @@ export function pluginDescriptor(packageInfo) {
       const p=packageInfo.parameters.find(p=>p.id===c.parameter);
       return {key:'parameter:'+p.id,label:c.label,group:c.group,unit:c.unit,readonly:p.readonly,page:c.page,help:c.help,advanced:c.advanced,options:c.options||[],quick:c.quick||(!controls.some(c=>c.quick)&&index===0&&!c.advanced),
         type:c.widget==='slider'?'range':c.widget==='momentary'?'momentary':c.widget==='toggle'?'checkbox':c.widget==='select'?'select':'number',
-        min:p.min,max:p.max,default:p.default,step:p.stepped?1:Math.max((p.max-p.min)/1000,0.000001)};
+        min:p.min,max:p.max,default:p.default,stepped:!!p.stepped,step:p.stepped?1:Math.max((p.max-p.min)/1000,0.000001)};
     }),{key:'bypass',label:packageInfo.source?'Silenciar fonte':packageInfo.consumer?'Suspender consumidor':packageInfo.worker||latency?'Bypass · original com atraso alinhado':'Bypass · manter o áudio original',type:'checkbox',group:'Rota'}],
     note:a.description};
 }

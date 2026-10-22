@@ -261,3 +261,16 @@ Gates adicionais: `./scripts/Test-AudioCleanup.ps1` (DSP sem dispositivos) e `no
 ## Plugins independentes e catálogo de teste
 
 O desenvolvimento posterior à 0.2.0 inclui [catálogo público experimental](https://github.com/Warier/nodivu-plugins), [Ducking](https://github.com/Warier/nodivu-ducking) e [Botão de fala](https://github.com/Warier/nodivu-talk-button). No app atualizado, abra Gerenciar plugins → Explorar, instale e reabra. A release original 0.2.0 precisa de atualização do host antes de usar estes pacotes API 2. Nenhuma release nova do aplicativo foi gerada automaticamente. [Contrato nativo e comandos de validação](PLUGIN-NATIVE.md).
+
+## Atalhos globais e por bloco
+
+No desenvolvimento 0.2.1-dev.2, use **Configurações → Atalhos de teclado** no menu superior.
+Escolha a ação de um Player (play/pause, reproduzir, reiniciar ou parar), pressione uma combinação
+como **Ctrl+Shift+F8**, selecione **Global**, adicione e feche a configuração. Minimize o Nodivu
+para testar em outro programa. O projeto deve ter arquivo carregado, conexões e saída válidas.
+Salve o projeto para preservar a identidade do bloco ao reabrir. O inspetor oferece **Atalhos deste bloco**.
+
+Também há silêncio geral, Escuta, ganho, bypass e controles de plugins. Nenhum atalho é ativado
+por padrão; combinações reservadas e conflitos são informados. Mouse pode usar macros remapeadas
+para F13–F24; captura direta de botões e segurar-para-falar global ainda não fazem parte desta versão.
+[Guia completo, teste manual, limites e contrato para plugins](HOTKEYS.md).
