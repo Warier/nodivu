@@ -8,7 +8,8 @@
 #include <QSet>
 class QLabel;
 class QCloseEvent;
-class QComboBox;
+class QMenu;
+class QAction;
 class QPushButton;
 class QDockWidget;
 
@@ -49,6 +50,7 @@ class MainWindow final : public QMainWindow {
     void updateStatus();
     void updateZoomControls();
     void updateActions();
+    void updateRecents();
     void discardRecovery();
     void configureVirtualOutput();
     void showSettings();
@@ -66,7 +68,7 @@ class MainWindow final : public QMainWindow {
     QLabel* revision_ = nullptr;
     QLabel* error_ = nullptr;
     QLabel* projectTitle_ = nullptr;
-    QComboBox* recents_ = nullptr;
+    QMenu* recents_ = nullptr;
     ProjectController* projects_ = nullptr;
     QWidget* recoveryBanner_ = nullptr;
     StoreController* store_ = nullptr;
@@ -76,13 +78,18 @@ class MainWindow final : public QMainWindow {
     QPushButton* zoomOut_ = nullptr;
     QPushButton* zoomReset_ = nullptr;
     QPushButton* fit_ = nullptr;
-    QPushButton* open_ = nullptr;
-    QPushButton* save_ = nullptr;
-    QPushButton* listen_ = nullptr;
-    QPushButton* settings_ = nullptr;
-    QPushButton* inspect_ = nullptr;
-    QPushButton* organize_ = nullptr;
-    QPushButton* routing_ = nullptr;
+    QAction* open_ = nullptr;
+    QAction* save_ = nullptr;
+    QAction* listen_ = nullptr;
+    QAction* settings_ = nullptr;
+    QAction* inspect_ = nullptr;
+    QAction* organize_ = nullptr;
+    QAction* routing_ = nullptr;
+    QAction* refreshDevices_ = nullptr;
+    QAction* retryDevices_ = nullptr;
+    QAction* virtualOutput_ = nullptr;
+    QAction* managePlugins_ = nullptr;
+    QAction* muteAction_ = nullptr;
     QDockWidget* routingDock_ = nullptr;
     SystemPanel* system_ = nullptr;
     bool closePending_ = false;

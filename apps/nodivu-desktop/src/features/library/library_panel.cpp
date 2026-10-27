@@ -145,26 +145,6 @@ LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
     contentLayout_->addStretch(1);
     scroll_->setWidget(content);
     layout->addWidget(scroll_, 1);
-    auto* footer = new QWidget(this);
-    footer->setObjectName(QStringLiteral("libraryFooter"));
-    auto* footerLayout = new QVBoxLayout(footer);
-    footerLayout->setContentsMargins(12, 8, 12, 14);
-    footerLayout->setSpacing(6);
-    auto* plugins = new QPushButton(QStringLiteral("Gerenciar plugins"), footer);
-    auto* refresh = new QPushButton(QStringLiteral("Atualizar dispositivos"), footer);
-    auto* retry = new QPushButton(QStringLiteral("Reabrir dispositivos"), footer);
-    retry->setObjectName(QStringLiteral("retryDevices"));
-    actions_ = {plugins, refresh, retry};
-    for (auto* button : actions_) {
-        button->setAccessibleName(button->text());
-        button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-        button->setToolTip(button->text());
-        footerLayout->addWidget(button);
-    }
-    layout->addWidget(footer);
-    connect(plugins, &QPushButton::clicked, this, &LibraryPanel::manageRequested);
-    connect(refresh, &QPushButton::clicked, this, &LibraryPanel::refreshRequested);
-    connect(retry, &QPushButton::clicked, this, &LibraryPanel::retryRequested);
 }
 
 void LibraryPanel::setVirtualOutputEnabled(bool enabled) {
@@ -219,9 +199,6 @@ void LibraryPanel::toggleCollapsed() {
     }
     for (auto* button : findChildren<LibraryBlockButton*>())
         button->setCompact(collapsed_);
-    const QStringList compactActions{QStringLiteral("▧"), QStringLiteral("↻"), QStringLiteral("⟳")};
-    for (qsizetype i = 0; i < actions_.size(); ++i)
-        actions_[i]->setText(collapsed_ ? compactActions[i] : actions_[i]->accessibleName());
     emit widthRequested(collapsed_ ? 64 : expandedWidth_);
 }
 } // namespace nodivu

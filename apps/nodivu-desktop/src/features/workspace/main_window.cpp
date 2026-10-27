@@ -20,7 +20,6 @@
 
 #include <QAction>
 #include <QCloseEvent>
-#include <QComboBox>
 #include <QDeadlineTimer>
 #include <QDesktopServices>
 #include <QDialog>
@@ -33,9 +32,9 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QShortcut>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTimer>
@@ -55,7 +54,8 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     auto* header = new QWidget(central);
-    header->setFixedHeight(64);
+    header->setObjectName(QStringLiteral("studioHeader"));
+    header->setFixedHeight(56);
     header->setStyleSheet(QStringLiteral("background: %1;").arg(Theme::headerBackground().name()));
     auto* tools = new QHBoxLayout(header);
     tools->setContentsMargins(18, 8, 18, 8);
@@ -95,34 +95,99 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     subtitle->setStyleSheet(QStringLiteral("color: #95a1b2; font-size: 10px; font-weight: 400;"));
     projectLayout->addWidget(subtitle);
     tools->addWidget(projectHeader, 1);
-    recents_ = new QComboBox(header);
-    recents_->setObjectName(QStringLiteral("projectRecents"));
-    recents_->setAccessibleName(QStringLiteral("Projetos recentes"));
-    recents_->addItem(QStringLiteral("Recentes…"));
-    recents_->setFixedWidth(recents_->sizeHint().width() * 2);
-    recents_->setEnabled(false);
-    tools->addWidget(recents_);
-    auto* folder = new QPushButton(QStringLiteral("Pasta"), header);
-    auto* open = new QPushButton(QStringLiteral("Abrir"), header);
-    auto* save = new QPushButton(QStringLiteral("Salvar…"), header);
-    auto* listen = new QPushButton(QStringLiteral("Escuta"), header);
-    auto* settings = new QPushButton(QStringLiteral("Sistema"), header);
+    // Keep the safety control directly reachable while administrative actions live in menus.
     auto* mute = new QPushButton(QStringLiteral("Silenciar tudo"), header);
+    mute->setObjectName(QStringLiteral("muteAll"));
+    mute->setCheckable(true);
+    tools->addWidget(mute);
+    layout->addWidget(header);
+
+    auto* menus = new QMenuBar(central);
+    menus->setObjectName(QStringLiteral("studioMenuBar"));
+    menus->setAccessibleName(QStringLiteral("Menus do Estúdio"));
+    menus->setNativeMenuBar(false);
+    menus->setStyleSheet(QStringLiteral(
+        "QMenuBar { background: #151c24; color: #aab6c7; border-bottom: 1px solid #2b333f; "
+        "padding: 3px 12px; font-size: 12px; spacing: 4px; }"
+        "QMenuBar::item { background: transparent; padding: 5px 10px; border-radius: 4px; }"
+        "QMenuBar::item:selected { background: #26313e; color: #e4e8ee; }"
+        "QMenuBar::item:pressed { background: #25433e; color: #70d9bd; }"));
+    const auto menu = [menus](const QString& title, const char* name, QMenu* parent = nullptr) {
+        auto* result = parent ? parent->addMenu(title) : menus->addMenu(title);
+        result->setObjectName(QLatin1String(name));
+        result->setToolTipsVisible(true);
+        return result;
+    };
+    const auto action = [this](QMenu* parent, const QString& title, const char* name,
+                               const QKeySequence& shortcut = {}) {
+        auto* result = parent->addAction(title);
+        result->setObjectName(QLatin1String(name));
+        result->setShortcut(shortcut);
+        // Register on the window too: shortcuts remain active while menus are closed.
+        addAction(result);
+        return result;
+    };
+    auto* fileMenu = menu(QStringLiteral("&Arquivo"), "fileMenu");
+    auto* open =
+        action(fileMenu, QStringLiteral("&Abrir projeto…"), "projectOpen", QKeySequence::Open);
+    auto* save =
+        action(fileMenu, QStringLiteral("&Salvar projeto…"), "projectSave", QKeySequence::Save);
     open_ = open;
     save_ = save;
-    listen_ = listen;
-    settings_ = settings;
-    open->setObjectName(QStringLiteral("projectOpen"));
-    save->setObjectName(QStringLiteral("projectSave"));
-    folder->setObjectName(QStringLiteral("projectFolder"));
-    listen->setObjectName(QStringLiteral("listenShortcut"));
-    settings->setObjectName(QStringLiteral("settingsToggle"));
-    mute->setObjectName(QStringLiteral("muteAll"));
+    recents_ = menu(QStringLiteral("Projetos &recentes"), "projectRecents", fileMenu);
+    fileMenu->addSeparator();
+    auto* folder = action(fileMenu, QStringLiteral("Abrir &pasta de projetos"), "projectFolder");
     setActionAvailability(folder, QStringLiteral("Abrir a pasta padrão de projetos"));
-    mute->setCheckable(true);
-    for (auto* button : {folder, open, save, listen, settings, mute})
-        tools->addWidget(button);
-    layout->addWidget(header);
+    fileMenu->addSeparator();
+    auto* quit = action(fileMenu, QStringLiteral("Sai&r"), "quitApplication",
+                        QKeySequence(QStringLiteral("Alt+F4")));
+    connect(quit, &QAction::triggered, this, [this] { close(); });
+
+    auto* viewMenu = menu(QStringLiteral("&Exibir"), "viewMenu");
+    settings_ = action(viewMenu, QStringLiteral("Painel &Sistema"), "settingsToggle",
+                       QKeySequence(QStringLiteral("Ctrl+,")));
+    settings_->setCheckable(true);
+    auto* inspect =
+        action(viewMenu, QStringLiteral("&Inspetor do bloco selecionado"), "inspectSelected");
+    inspect_ = inspect;
+    viewMenu->addSeparator();
+    auto* organize = action(viewMenu, QStringLiteral("&Organizar blocos"), "organizeGraph");
+    organize_ = organize;
+
+    auto* audioMenu = menu(QStringLiteral("Á&udio"), "audioMenu");
+    listen_ = action(audioMenu, QStringLiteral("&Escuta local…"), "listenShortcut");
+    virtualOutput_ = action(audioMenu, QStringLiteral("Configurar &microfone virtual"),
+                            "configureVirtualOutput");
+    auto* devicesMenu = menu(QStringLiteral("&Dispositivos"), "devicesMenu", audioMenu);
+    refreshDevices_ =
+        action(devicesMenu, QStringLiteral("&Atualizar lista de dispositivos"), "refreshDevices");
+    retryDevices_ = action(devicesMenu, QStringLiteral("&Reabrir dispositivos e preparar áudio"),
+                           "retryDevices");
+    audioMenu->addSeparator();
+    muteAction_ = action(audioMenu, QStringLiteral("Silenciar tudo"), "muteAllAction");
+    muteAction_->setCheckable(true);
+    connect(muteAction_, &QAction::triggered, mute, &QPushButton::click);
+    connect(mute, &QPushButton::toggled, muteAction_, &QAction::setChecked);
+
+    auto* pluginsMenu = menu(QStringLiteral("&Plugins"), "pluginsMenu");
+    managePlugins_ = action(pluginsMenu, QStringLiteral("&Gerenciar plugins…"), "managePlugins");
+    connect(managePlugins_, &QAction::triggered, this, &MainWindow::storeRequested);
+
+    auto* helpMenu = menu(QStringLiteral("A&juda"), "helpMenu");
+    auto* shortcuts = action(helpMenu, QStringLiteral("&Atalhos e navegação"), "keyboardHelp");
+    connect(shortcuts, &QAction::triggered, this, [this] {
+        QMessageBox::information(
+            this, QStringLiteral("Atalhos e navegação"),
+            QStringLiteral(
+                "Ctrl+O · Abrir projeto\nCtrl+S · Salvar projeto\n"
+                "Ctrl+, · Abrir ou fechar Sistema\nCtrl+Shift+R · Roteamento por teclado\n\n"
+                "Alt · Acessar os menus; setas navegam e Esc fecha.\n"
+                "Espaço+arraste · Mover pelo projeto\nCtrl+roda · Zoom\n"
+                "Shift+roda · Mover para os lados\n"
+                "Botão direito em um fio · Opções da conexão"));
+    });
+    connect(viewMenu, &QMenu::aboutToShow, this, &MainWindow::updateActions);
+    layout->addWidget(menus);
 
     auto* splitter = new QSplitter(Qt::Horizontal, central);
     splitter->setHandleWidth(4);
@@ -160,16 +225,10 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     areaLayout->addWidget(new QLabel(QStringLiteral("Área de projeto"), area));
     areaLayout->addStretch();
     toolbar->addWidget(area, 1);
-    auto* inspect = new QPushButton(QStringLiteral("Inspetor"), workspace);
-    auto* organize = new QPushButton(QStringLiteral("Organizar"), workspace);
     auto* fit = new QPushButton(QStringLiteral("Enquadrar"), workspace);
     auto* minus = new QPushButton(QStringLiteral("−"), workspace);
     auto* reset = new QPushButton(QStringLiteral("100%"), workspace);
     auto* plus = new QPushButton(QStringLiteral("+"), workspace);
-    inspect_ = inspect;
-    organize_ = organize;
-    inspect->setObjectName(QStringLiteral("inspectSelected"));
-    organize->setObjectName(QStringLiteral("organizeGraph"));
     zoomIn_ = plus;
     zoomOut_ = minus;
     zoomReset_ = reset;
@@ -178,7 +237,7 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     plus->setAccessibleName(QStringLiteral("Aumentar zoom"));
     reset->setAccessibleName(QStringLiteral("Restaurar zoom para 100%"));
     reset->setObjectName(QStringLiteral("zoomReset"));
-    for (auto* button : {inspect, organize, fit, minus, reset, plus})
+    for (auto* button : {fit, minus, reset, plus})
         toolbar->addWidget(button);
     workspaceLayout->addLayout(toolbar);
     scene_ = new GraphScene(session_, this);
@@ -249,14 +308,12 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     addDockWidget(Qt::RightDockWidgetArea, routingDock);
     routingDock->hide();
     auto* routingAction = routingDock->toggleViewAction();
+    routing_ = routingAction;
+    routingAction->setObjectName(QStringLiteral("routingToggle"));
+    routingAction->setText(QStringLiteral("&Roteamento por teclado"));
     routingAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+R")));
+    viewMenu->insertAction(inspect, routingAction);
     addAction(routingAction);
-    auto* routingButton = new QPushButton(QStringLiteral("Roteamento"), workspace);
-    routing_ = routingButton;
-    routingButton->setObjectName(QStringLiteral("routingToggle"));
-    routingButton->setToolTip(QStringLiteral("Blocos e conexões por teclado · Ctrl+Shift+R"));
-    toolbar->insertWidget(1, routingButton);
-    connect(routingButton, &QPushButton::clicked, routingAction, &QAction::trigger);
     connect(routing, &RoutingPanel::inspectRequested, this, [this](const QString& id) {
         scene_->selectNode(id);
         inspector_->inspect(id);
@@ -321,25 +378,12 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
                                     : QFileInfo(projects_->path()).fileName()) +
                                (projects_->dirty() ? QStringLiteral(" •") : QString()));
         recoveryBanner_->setVisible(projects_->recoveryPending());
-        QSignalBlocker blocker(recents_);
-        const auto files = projects_->recents();
-        recents_->setEnabled(enabled && !files.isEmpty());
-        if (recents_->property("files").toStringList() != files) {
-            recents_->clear();
-            recents_->addItem(QStringLiteral("Recentes…"));
-            for (const auto& file : files)
-                recents_->addItem(QFileInfo(file).fileName(), file);
-            recents_->setProperty("files", files);
-        }
+        updateRecents();
         updateActions();
         updateZoomControls();
     });
-    connect(recents_, &QComboBox::activated, this, [this](int index) {
-        const auto file = recents_->itemData(index).toString();
-        if (!file.isEmpty())
-            projects_->open(file);
-        recents_->setCurrentIndex(0);
-    });
+    connect(recents_, &QMenu::aboutToShow, this, &MainWindow::updateRecents);
+    updateRecents();
     connect(restore, &QPushButton::clicked, projects_, &ProjectController::restoreRecovery);
     connect(discard, &QPushButton::clicked, this, &MainWindow::discardRecovery);
     recoveryBanner_->setVisible(projects_->recoveryPending());
@@ -350,10 +394,9 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     connect(library_, &LibraryPanel::virtualOutputRequested, this,
             &MainWindow::configureVirtualOutput);
     connect(library_, &LibraryPanel::addRequested, &session_, &SessionController::addNode);
-    connect(library_, &LibraryPanel::refreshRequested, &session_,
-            &SessionController::refreshDevices);
-    connect(library_, &LibraryPanel::retryRequested, this, [this] { projects_->prepareAudio(); });
-    connect(library_, &LibraryPanel::manageRequested, this, &MainWindow::storeRequested);
+    connect(refreshDevices_, &QAction::triggered, &session_, &SessionController::refreshDevices);
+    connect(retryDevices_, &QAction::triggered, this, [this] { projects_->prepareAudio(); });
+    connect(virtualOutput_, &QAction::triggered, this, &MainWindow::configureVirtualOutput);
     connect(&session_, &SessionController::catalogChanged, this,
             [this] { library_->setCatalog(session_.catalog()); });
     library_->setCatalog(session_.catalog());
@@ -413,7 +456,7 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
                                    [connection] { QObject::disconnect(*connection); });
                 session_.addNode(kind, plugin);
             });
-    connect(inspect, &QPushButton::clicked, this, [this] {
+    connect(inspect, &QAction::triggered, this, [this] {
         for (auto* item : scene_->selectedItems())
             if (const auto* node = dynamic_cast<NodeItem*>(item)) {
                 inspector_->inspect(node->nodeId());
@@ -421,7 +464,7 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
                 return;
             }
     });
-    connect(organize, &QPushButton::clicked, scene_, &GraphScene::organize);
+    connect(organize, &QAction::triggered, scene_, &GraphScene::organize);
     connect(fit, &QPushButton::clicked, view_, &GraphView::fitNodes);
     connect(plus, &QPushButton::clicked, this, [this] { view_->zoomBy(1.2); });
     connect(minus, &QPushButton::clicked, this, [this] { view_->zoomBy(1 / 1.2); });
@@ -429,15 +472,15 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
             [this] { view_->zoomBy(1 / view_->transform().m11()); });
     connect(view_, &GraphView::zoomChanged, this, &MainWindow::updateZoomControls);
     updateZoomControls();
-    connect(folder, &QPushButton::clicked, this, [this] {
+    connect(folder, &QAction::triggered, this, [this] {
         if (!QDir().mkpath(paths_.projects) ||
             !QDesktopServices::openUrl(QUrl::fromLocalFile(paths_.projects))) {
             error_->setText(QStringLiteral("Não foi possível abrir a pasta de projetos."));
             error_->show();
         }
     });
-    connect(open, &QPushButton::clicked, this, &MainWindow::openRequested);
-    connect(save, &QPushButton::clicked, this, &MainWindow::saveRequested);
+    connect(open, &QAction::triggered, this, &MainWindow::openRequested);
+    connect(save, &QAction::triggered, this, &MainWindow::saveRequested);
     connect(this, &MainWindow::storeRequested, this, [this] {
         if (store_)
             store_->refreshInstalled();
@@ -452,8 +495,8 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
             window->show();
         }
     });
-    connect(settings, &QPushButton::clicked, this, &MainWindow::showSettings);
-    connect(listen, &QPushButton::clicked, system_, &SystemPanel::openMonitor);
+    connect(settings_, &QAction::triggered, this, &MainWindow::showSettings);
+    connect(listen_, &QAction::triggered, system_, &SystemPanel::openMonitor);
     connect(mute, &QPushButton::toggled, this, [this](bool enabled) {
         if (!mute_->isEnabled())
             return;
@@ -466,11 +509,9 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
         mute_->setChecked(session_.snapshot().value(QStringLiteral("muted")).toBool());
         mute_->setText(mute_->isChecked() ? QStringLiteral("Restaurar som")
                                           : QStringLiteral("Silenciar tudo"));
+        muteAction_->setChecked(mute_->isChecked());
+        muteAction_->setText(mute_->text());
     });
-    connect(new QShortcut(QKeySequence::Open, this), &QShortcut::activated, this,
-            &MainWindow::openRequested);
-    connect(new QShortcut(QKeySequence::Save, this), &QShortcut::activated, this,
-            &MainWindow::saveRequested);
     updateActions();
     connect(&backend_, &BackendClient::stopped, this, [this] {
         shutdownComplete_ = true;
@@ -610,6 +651,37 @@ void MainWindow::configureVirtualOutput() {
     retry->start();
 }
 
+void MainWindow::updateRecents() {
+    const auto files = projects_->recents();
+    if (recents_->property("files").toStringList() != files || recents_->isEmpty()) {
+        recents_->clear();
+        for (const auto& file : files) {
+            auto label = QFileInfo(file).fileName();
+            label.replace(QLatin1Char('&'), QStringLiteral("&&"));
+            auto* recent = recents_->addAction(label);
+            recent->setData(file);
+            recent->setToolTip(file.toHtmlEscaped());
+            // Same filenames are distinguished by their containing folder.
+            for (const auto& other : files)
+                if (other != file && QFileInfo(other).fileName() == QFileInfo(file).fileName()) {
+                    auto folder = QFileInfo(file).absolutePath();
+                    folder.replace(QLatin1Char('&'), QStringLiteral("&&"));
+                    recent->setText(label + QStringLiteral(" — ") + folder);
+                    break;
+                }
+            connect(recent, &QAction::triggered, this, [this, file] {
+                if (open_->isEnabled())
+                    projects_->open(file);
+            });
+        }
+        if (files.isEmpty()) {
+            auto* empty = recents_->addAction(QStringLiteral("Nenhum projeto recente"));
+            empty->setEnabled(false);
+        }
+        recents_->setProperty("files", files);
+    }
+}
+
 void MainWindow::updateZoomControls() {
     const bool hasNodes = !session_.snapshot()
                                .value(QStringLiteral("graph"))
@@ -666,7 +738,7 @@ void MainWindow::updateActions() {
     setActionAvailability(open_, QStringLiteral("Abrir projeto e preparar o áudio · Ctrl+O"),
                           reason);
     setActionAvailability(save_, QStringLiteral("Salvar projeto · Ctrl+S"), reason);
-    setActionAvailability(recents_, QStringLiteral("Abrir um projeto recente"),
+    setActionAvailability(recents_->menuAction(), QStringLiteral("Abrir um projeto recente"),
                           !reason.isEmpty() ? reason
                           : projects_->recents().isEmpty()
                               ? QStringLiteral("Nenhum projeto recente disponível.")
@@ -686,6 +758,27 @@ void MainWindow::updateActions() {
                           closingReason);
     setActionAvailability(listen_, QStringLiteral("Ir à Escuta local no painel Sistema"),
                           closingReason);
+    settings_->setChecked(system_->isVisible());
+    setActionAvailability(managePlugins_, QStringLiteral("Abrir a loja e gerenciar plugins"),
+                          !closingReason.isEmpty() ? closingReason
+                          : !store_ ? QStringLiteral("Aguarde a preparação dos plugins.")
+                                    : QString());
+    setActionAvailability(refreshDevices_, QStringLiteral("Detectar os dispositivos disponíveis"),
+                          !reason.isEmpty() ? reason
+                          : session_.devicesRefreshing()
+                              ? QStringLiteral("A detecção está em andamento.")
+                              : QString());
+    setActionAvailability(
+        retryDevices_, QStringLiteral("Reabrir dispositivos e preparar arquivos salvos"),
+        !closingReason.isEmpty() ? closingReason
+        : projects_->busy()      ? QStringLiteral("Aguarde a operação atual do projeto.")
+        : !session_.online()     ? QStringLiteral("O motor de áudio está desconectado.")
+                                 : QString());
+    setActionAvailability(virtualOutput_,
+                          QStringLiteral("Criar ou revelar a saída para configurar o destino"),
+                          !reason.isEmpty()       ? reason
+                          : virtualOutputPending_ ? QStringLiteral("Aguarde a preparação da saída.")
+                                                  : QString());
     const bool running = session_.snapshot().value(QStringLiteral("engine_state")).toString() ==
                          QStringLiteral("running");
     const bool muted = session_.snapshot().value(QStringLiteral("muted")).toBool();
@@ -696,6 +789,8 @@ void MainWindow::updateActions() {
                           : !running && !muted
                               ? QStringLiteral("Não há áudio ativo para silenciar.")
                               : QString());
+    muteAction_->setEnabled(mute_->isEnabled());
+    muteAction_->setToolTip(mute_->toolTip());
     const auto presentation = audioState(session_.snapshot(), session_.devices(), session_.online(),
                                          session_.deviceIssue());
     const auto audioReason =

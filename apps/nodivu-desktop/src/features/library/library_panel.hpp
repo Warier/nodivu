@@ -15,9 +15,6 @@ class LibraryPanel final : public QWidget {
     void setVirtualOutputEnabled(bool enabled);
   signals:
     void addRequested(const QString& kind, const QString& pluginId);
-    void manageRequested();
-    void refreshRequested();
-    void retryRequested();
     void virtualOutputRequested();
     void widthRequested(int width);
 
@@ -39,7 +36,6 @@ class LibraryPanel final : public QWidget {
     QToolButton* toggle_ = nullptr;
     QPushButton* virtualOutput_ = nullptr;
     QVector<Category> categories_;
-    QList<QPushButton*> actions_;
     bool collapsed_ = false;
     int expandedWidth_ = 228;
 };

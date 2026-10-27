@@ -46,6 +46,12 @@ void Theme::apply(QApplication& application) {
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
         "QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit { padding: 6px; border: 1px solid #344257; "
         "border-radius: 5px; }"
+        "QMenu { background: #1b2531; color: #dbe3ef; border: 1px solid #3d4b5a; "
+        "border-radius: 6px; padding: 5px; font-size: 12px; }"
+        "QMenu::item { padding: 8px 32px 8px 26px; border-radius: 4px; }"
+        "QMenu::item:selected { background: #29483f; color: #a2f0da; }"
+        "QMenu::item:disabled { color: #748195; }"
+        "QMenu::separator { height: 1px; background: #344151; margin: 5px 8px; }"
         "QToolTip { color: #dbe3ef; background: #202a35; border: 1px solid #516373; }"));
 }
 } // namespace nodivu

@@ -15,6 +15,8 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QJsonDocument>
+#include <QMenu>
+#include <QMenuBar>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
@@ -169,11 +171,23 @@ QJsonObject fixture(bool large) {
             {QStringLiteral("captures"), QJsonArray{}}};
 }
 QJsonObject externalAccessibility(QWidget& window, bool invokeRouting) {
+    QJsonObject initial;
+    QWidget* target = &window;
+    if (invokeRouting) {
+        initial = externalAccessibility(window, false);
+        auto* menu = window.findChild<QMenu*>(QStringLiteral("viewMenu"));
+        auto* menus = window.findChild<QMenuBar*>(QStringLiteral("studioMenuBar"));
+        require(menu && menus, "studio view menu missing");
+        // Popup menus have their own native accessibility root. Bind the actor to
+        // this owned popup before invoking the routing command through UI Automation.
+        menu->popup(menus->mapToGlobal(menus->actionGeometry(menu->menuAction()).bottomLeft()));
+        target = menu;
+    }
     QProcess actor;
-    QStringList args{QString::number(window.winId()),
+    QStringList args{QString::number(target->winId()),
                      QString::number(QCoreApplication::applicationPid())};
     if (invokeRouting)
-        args.append(QStringLiteral("Roteamento"));
+        args.append(QStringLiteral("Roteamento por teclado"));
     actor.start(QCoreApplication::applicationDirPath() +
                     QStringLiteral("/windows_accessibility_actor.exe"),
                 args);
@@ -187,6 +201,11 @@ QJsonObject externalAccessibility(QWidget& window, bool invokeRouting) {
     if (actor.exitCode() != 0)
         QTextStream(stderr) << QJsonDocument(evidence).toJson() << actor.readAllStandardError();
     require(actor.exitCode() == 0, "native Windows accessibility failed");
+    if (invokeRouting)
+        return {{QStringLiteral("before"), initial.value(QStringLiteral("before"))},
+                {QStringLiteral("after"),
+                 externalAccessibility(window, false).value(QStringLiteral("before"))},
+                {QStringLiteral("menu_invocation"), evidence}};
     return evidence;
 }
 bool named(const QJsonArray& controls, const QString& name) {
@@ -268,7 +287,7 @@ void run(const QCommandLineParser& parser, QJsonObject& evidence) {
     evidence.insert(QStringLiteral("accessibility"), accessibility);
     const auto before = accessibility.value(QStringLiteral("before")).toArray();
     const auto after = accessibility.value(QStringLiteral("after")).toArray();
-    require(named(before, QStringLiteral("Salvar…")) &&
+    require(named(before, QStringLiteral("Arquivo")) &&
                 named(before, QStringLiteral("Aumentar zoom")) &&
                 named(before, QStringLiteral("Ganho")) &&
                 named(after, QStringLiteral("Blocos e conexões")),

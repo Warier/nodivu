@@ -18,6 +18,7 @@
 #include "ui/controls/worker_controls.hpp"
 #include "ui/theme/theme.hpp"
 #include <QAccessible>
+#include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -28,6 +29,7 @@
 #include <QDoubleSpinBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QGraphicsItem>
@@ -36,6 +38,8 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QProgressBar>
@@ -56,6 +60,109 @@
 class WorkspaceTests final : public QObject {
     Q_OBJECT
   private slots:
+    void menusNavigateAndOpenExactRecentPathWithSharedSaveShortcut() {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        auto paths = nodivu::AppPaths::development(QStringLiteral(NODIVU_REPOSITORY_DIR));
+        paths.profile = profile.path();
+        paths.plugins = QDir(profile.path()).filePath(QStringLiteral("plugins"));
+        paths.storeSource.clear();
+        nodivu::Theme::apply(*qobject_cast<QApplication*>(QCoreApplication::instance()));
+        nodivu::MainWindow window(paths);
+        window.show();
+        auto& session = window.session();
+        QTRY_VERIFY_WITH_TIMEOUT(session.settled(), 10000);
+        auto* projects = window.findChild<nodivu::ProjectController*>();
+        auto* menus = window.findChild<QMenuBar*>(QStringLiteral("studioMenuBar"));
+        auto* file = window.findChild<QMenu*>(QStringLiteral("fileMenu"));
+        auto* recents = window.findChild<QMenu*>(QStringLiteral("projectRecents"));
+        auto* devices = window.findChild<QMenu*>(QStringLiteral("devicesMenu"));
+        QVERIFY(projects && menus && file && recents && devices);
+        QVERIFY(menus->y() >= window.findChild<QWidget*>(QStringLiteral("studioHeader"))->height());
+        QVERIFY(!recents->menuAction()->isEnabled());
+        window.resize(960, 650);
+        QCoreApplication::processEvents();
+        for (auto* item : menus->actions())
+            QVERIFY(menus->rect().contains(menus->actionGeometry(item)));
+        const auto capture = [&](const QString& name, QWidget* widget) {
+            const auto directory = qEnvironmentVariable("NODIVU_WORKSPACE_SCREENSHOTS");
+            return directory.isEmpty() || widget->grab().save(QDir(directory).filePath(name));
+        };
+        QVERIFY(capture(QStringLiteral("menus-960.png"), &window));
+        window.resize(1440, 900);
+        session.addNode(QStringLiteral("gain"));
+        QTRY_VERIFY(session.settled());
+        const auto nodes = [&] {
+            return session.snapshot()
+                .value(QStringLiteral("graph"))
+                .toObject()
+                .value(QStringLiteral("nodes"))
+                .toArray();
+        };
+        QTRY_COMPARE(nodes().size(), 1);
+        const auto gain = nodes().first().toObject().value(QStringLiteral("id")).toString();
+        QVERIFY(QDir().mkpath(profile.filePath(QStringLiteral("A"))));
+        QVERIFY(QDir().mkpath(profile.filePath(QStringLiteral("B"))));
+        const auto first = profile.filePath(QStringLiteral("A/Projeto & voz.nodivu.json"));
+        const auto second = profile.filePath(QStringLiteral("B/Projeto & voz.nodivu.json"));
+        projects->save(first);
+        QTRY_VERIFY(!projects->busy() && !projects->dirty());
+        session.updateField(gain, QStringLiteral("gain_db"), -18.0);
+        QTRY_VERIFY(session.settled() && projects->dirty());
+        window.activateWindow();
+        window.setFocus();
+        // Saving intentionally keeps the existing file picker. Verify one shortcut
+        // invocation, cancel the picker, then save to the explicit fixture path.
+        QSignalSpy saves(&window, &nodivu::MainWindow::saveRequested);
+        const bool nativeDialogsDisabled = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+        bool pickerCancelled = false;
+        QTimer::singleShot(0, &window, [&] {
+            if (auto* picker = window.findChild<QFileDialog*>()) {
+                picker->reject();
+                pickerCancelled = true;
+            }
+        });
+        QTest::keyClick(&window, Qt::Key_S, Qt::ControlModifier);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, nativeDialogsDisabled);
+        QCOMPARE(saves.count(), 1);
+        QVERIFY(pickerCancelled && projects->dirty());
+        projects->save(first);
+        QTRY_VERIFY(!projects->busy() && !projects->dirty());
+        session.addNode(QStringLiteral("meter"));
+        QTRY_VERIFY(session.settled() && nodes().size() == 2);
+        projects->save(second);
+        QTRY_VERIFY(!projects->busy() && !projects->dirty());
+        QVERIFY(recents->menuAction()->isEnabled());
+        QCOMPARE(recents->actions().size(), 2);
+        QVERIFY(recents->actions().first()->text() != recents->actions().last()->text());
+        QCOMPARE(recents->actions().last()->data().toString(), first);
+        QVERIFY(capture(QStringLiteral("menus-studio.png"), &window));
+        // Exercise actual popup navigation: right opens a submenu, Enter opens its exact path.
+        QTest::mouseClick(menus, Qt::LeftButton, Qt::NoModifier,
+                          menus->actionGeometry(file->menuAction()).center());
+        QTRY_VERIFY(file->isVisible());
+        file->setActiveAction(recents->menuAction());
+        QTest::keyClick(file, Qt::Key_Right);
+        QTRY_VERIFY(recents->isVisible());
+        recents->setActiveAction(recents->actions().last());
+        QVERIFY(capture(QStringLiteral("menus-file.png"), file));
+        QVERIFY(capture(QStringLiteral("menus-recents.png"), recents));
+        QTest::keyClick(recents, Qt::Key_Return);
+        QTRY_VERIFY(!projects->busy() && session.settled() && projects->path() == first);
+        QCOMPARE(nodes().size(), 1);
+        QCOMPARE(session.node(gain)
+                     .value(QStringLiteral("block"))
+                     .toObject()
+                     .value(QStringLiteral("gain_db"))
+                     .toDouble(),
+                 -18.0);
+        const auto before = projects->document();
+        auto* listen = window.findChild<QAction*>(QStringLiteral("listenShortcut"));
+        listen->trigger();
+        QVERIFY(window.findChild<nodivu::SystemPanel*>()->isVisible());
+        QCOMPARE(projects->document(), before);
+    }
     void spacePanMovesCameraWithoutMovingNodesOrConsumingEditorInput() {
         QGraphicsScene scene;
         scene.setSceneRect(-2000, -2000, 6000, 6000);
@@ -431,19 +538,22 @@ class WorkspaceTests final : public QObject {
         const auto button = [&window](const char* name) {
             return window.findChild<QPushButton*>(QLatin1String(name));
         };
-        auto* settings = button("settingsToggle");
-        auto* listen = button("listenShortcut");
-        auto* inspect = button("inspectSelected");
-        auto* routing = button("routingToggle");
+        const auto action = [&window](const char* name) {
+            return window.findChild<QAction*>(QLatin1String(name));
+        };
+        auto* settings = action("settingsToggle");
+        auto* listen = action("listenShortcut");
+        auto* inspect = action("inspectSelected");
+        auto* routing = action("routingToggle");
         auto* mute = button("muteAll");
         QVERIFY(settings && listen && inspect && routing && mute);
-        QVERIFY(!button("projectOpen")->isEnabled());
+        QVERIFY(!action("projectOpen")->isEnabled());
         QTRY_VERIFY_WITH_TIMEOUT(session.settled(), 10000);
-        QVERIFY(button("projectOpen")->isEnabled() && button("projectSave")->isEnabled());
+        QVERIFY(action("projectOpen")->isEnabled() && action("projectSave")->isEnabled());
         session.command(QStringLiteral("session.snapshot"), {});
-        QVERIFY(!button("projectOpen")->isEnabled() && !button("projectSave")->isEnabled());
-        QVERIFY(button("projectSave")->toolTip().contains(QStringLiteral("Aguarde")));
-        QTRY_VERIFY(session.settled() && button("projectSave")->isEnabled());
+        QVERIFY(!action("projectOpen")->isEnabled() && !action("projectSave")->isEnabled());
+        QVERIFY(action("projectSave")->toolTip().contains(QStringLiteral("Aguarde")));
+        QTRY_VERIFY(session.settled() && action("projectSave")->isEnabled());
         QVERIFY(!inspect->isEnabled() && !routing->isEnabled() && !mute->isEnabled());
         QVERIFY(mute->toolTip().contains(QStringLiteral("áudio ativo")));
         QSignalSpy muted(mute, &QPushButton::toggled);
@@ -456,7 +566,7 @@ class WorkspaceTests final : public QObject {
         QToolTip::hideText();
         QVERIFY(window.findChild<QFrame*>(QStringLiteral("projectAreaDot"))->isVisible());
         const auto before = projects->document();
-        QTest::mouseClick(settings, Qt::LeftButton);
+        settings->trigger();
         QVERIFY(panel->isVisible());
         QCOMPARE(window.findChildren<nodivu::SystemPanel*>().size(), 1);
         auto* device = panel->findChild<QComboBox*>(QStringLiteral("monitorDevice"));
@@ -475,7 +585,7 @@ class WorkspaceTests final : public QObject {
         QTest::qWait(50);
         QVERIFY(capture(QStringLiteral("system-top.png")));
         scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
-        QTest::mouseClick(listen, Qt::LeftButton);
+        listen->trigger();
         QTest::qWait(50);
         auto* monitorSection = panel->findChild<QWidget*>(QStringLiteral("monitorSection"));
         const auto monitorBounds =
@@ -489,7 +599,7 @@ class WorkspaceTests final : public QObject {
         auto* update = button("updateAction");
         QVERIFY(update && !update->isEnabled());
         QVERIFY(update->toolTip().contains(QStringLiteral("canal")));
-        QTest::mouseClick(settings, Qt::LeftButton);
+        settings->trigger();
         QVERIFY(!panel->isVisible());
         QString id;
         connect(&session, &nodivu::SessionController::nodeAdded, &window,
@@ -498,12 +608,12 @@ class WorkspaceTests final : public QObject {
         QTRY_VERIFY_WITH_TIMEOUT(!id.isEmpty() && session.settled(), 5000);
         const auto gain = id;
         QTRY_VERIFY(inspect->isEnabled() && routing->isEnabled());
-        QTest::mouseClick(inspect, Qt::LeftButton);
+        inspect->trigger();
         QVERIFY(inspector->isVisible());
         QCOMPARE(inspector->selectedId(), gain);
         scene->clearSelection();
         QVERIFY(!inspect->isEnabled());
-        QTest::mouseClick(routing, Qt::LeftButton);
+        routing->trigger();
         auto* dock = window.findChild<QDockWidget*>(QStringLiteral("routingDock"));
         QVERIFY(dock && dock->isVisible());
         auto* connectButton = button("routingConnect");
@@ -540,7 +650,7 @@ class WorkspaceTests final : public QObject {
         QTest::qWait(50);
         QVERIFY(capture(QStringLiteral("routing-panel.png")));
         dock->hide();
-        QTest::mouseClick(settings, Qt::LeftButton);
+        settings->trigger();
         QTRY_VERIFY(panel->isVisible());
         QPushButton* wire = nullptr;
         for (auto* candidate : panel->findChildren<QPushButton*>())
@@ -1430,7 +1540,7 @@ class WorkspaceTests final : public QObject {
         QVERIFY(!combo->isEnabled());
         QCOMPARE(edits.count(), 0);
     }
-    void sidebarKeepsFooterAndBlockActionsWhenScrolledOrCollapsed() {
+    void sidebarKeepsBlockActionsWhenScrolledOrCollapsed() {
         QTemporaryDir profile;
         QVERIFY(profile.isValid());
         auto paths = nodivu::AppPaths::development(QStringLiteral(NODIVU_REPOSITORY_DIR));
@@ -1444,23 +1554,19 @@ class WorkspaceTests final : public QObject {
         auto* library = window.findChild<nodivu::LibraryPanel*>();
         QVERIFY(library);
         auto* scroll = library->findChild<QScrollArea*>(QStringLiteral("libraryScroll"));
-        auto* footer = library->findChild<QWidget*>(QStringLiteral("libraryFooter"));
+        auto* menus = window.findChild<QMenuBar*>(QStringLiteral("studioMenuBar"));
         auto* toggle = library->findChild<QToolButton*>(QStringLiteral("libraryToggle"));
         auto* processing =
             library->findChild<QToolButton*>(QStringLiteral("category:Processamento"));
         auto* capture = library->findChild<nodivu::LibraryBlockButton*>(QStringLiteral("capture"));
         auto* tone = library->findChild<nodivu::LibraryBlockButton*>(QStringLiteral("tone"));
-        QVERIFY(scroll && footer && toggle && processing && capture && tone);
-        QVERIFY(!scroll->isAncestorOf(footer));
-        const auto footerPosition = footer->mapTo(&window, QPoint());
-        QTRY_VERIFY(scroll->verticalScrollBar()->maximum() > 0);
+        QVERIFY(scroll && menus && toggle && processing && capture && tone);
+        const auto menuPosition = menus->mapTo(&window, QPoint());
         scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
         QCoreApplication::processEvents();
-        QCOMPARE(footer->mapTo(&window, QPoint()), footerPosition);
-        const auto actions = footer->findChildren<QPushButton*>();
-        QCOMPARE(actions.size(), 3);
-        for (auto* action : actions)
-            QVERIFY(action->isVisible() && action->isEnabled());
+        QCOMPARE(menus->mapTo(&window, QPoint()), menuPosition);
+        auto* manage = window.findChild<QAction*>(QStringLiteral("managePlugins"));
+        QVERIFY(manage && manage->isEnabled());
         scroll->verticalScrollBar()->setValue(0);
         processing->setChecked(false);
         const auto expandedWidth = library->width();
@@ -1472,8 +1578,7 @@ class WorkspaceTests final : public QObject {
             QRect(toggle->mapTo(scroll->viewport(), QPoint()), toggle->size())));
         QVERIFY(capture->isVisible() && tone->isVisible());
         QVERIFY(!processing->isVisible());
-        for (auto* action : actions)
-            QVERIFY(action->isVisible() && !action->accessibleName().isEmpty());
+        QVERIFY(menus->isVisible() && manage->isEnabled());
         const auto evidence = qEnvironmentVariable("NODIVU_WORKSPACE_SCREENSHOTS");
         if (!evidence.isEmpty() && QDir().mkpath(evidence))
             QVERIFY(window.grab().save(
@@ -1493,8 +1598,7 @@ class WorkspaceTests final : public QObject {
         QTest::mouseClick(toggle, Qt::LeftButton);
         QTRY_COMPARE(library->width(), expandedWidth);
         QVERIFY(!processing->isChecked());
-        for (auto* action : actions)
-            QCOMPARE(action->text(), action->accessibleName());
+        QVERIFY(menus->isVisible() && manage->isEnabled());
     }
     void zoomReadoutAndEmptyProjectQuickStart() {
         QTemporaryDir profile;
@@ -1880,13 +1984,13 @@ class WorkspaceTests final : public QObject {
                                      runtime().value(QStringLiteral("status")).toInt() != 2,
                                  5000);
         QVERIFY(QFile::rename(audio + QStringLiteral(".held"), audio));
-        auto* retry = window.findChild<QPushButton*>(QStringLiteral("retryDevices"));
+        auto* retry = window.findChild<QAction*>(QStringLiteral("retryDevices"));
         QVERIFY(retry);
         QSignalSpy discovery(&session, &nodivu::SessionController::devicesRefreshed);
         // A pending edit must settle before retry, and the missing saved file must be
         // retried.
         session.updateField(player, QStringLiteral("bypass"), true);
-        retry->click();
+        retry->trigger();
         QTRY_VERIFY_WITH_TIMEOUT(!projects->busy() && session.settled(), 5000);
         QVERIFY(!discovery.isEmpty());
         QTRY_COMPARE_WITH_TIMEOUT(runtime().value(QStringLiteral("status")).toInt(), 2, 5000);
@@ -1897,7 +2001,7 @@ class WorkspaceTests final : public QObject {
                     .value(QStringLiteral("bypass"))
                     .toBool());
         const auto loaded = runtime();
-        retry->click();
+        retry->trigger();
         QTRY_VERIFY_WITH_TIMEOUT(!projects->busy() && session.settled(), 5000);
         QCOMPARE(runtime().value(QStringLiteral("file")), loaded.value(QStringLiteral("file")));
         QCOMPARE(runtime().value(QStringLiteral("position_ms")),
@@ -2000,9 +2104,9 @@ class WorkspaceTests final : public QObject {
         auto* projectTitle = window.findChild<QLabel*>(QStringLiteral("projectTitle"));
         QVERIFY(projectTitle);
         QCOMPARE(projectTitle->text(), QStringLiteral("Projeto sem título"));
-        auto* recents = window.findChild<QComboBox*>(QStringLiteral("projectRecents"));
+        auto* recents = window.findChild<QMenu*>(QStringLiteral("projectRecents"));
         QVERIFY(recents);
-        QVERIFY(!recents->isEnabled());
+        QVERIFY(!recents->menuAction()->isEnabled());
         QVERIFY2(errors.isEmpty(), "Backend initialization must not silently fail.");
         QVERIFY(session.catalog().entries().size() >= 10);
         const auto nodes = [&] {
@@ -2123,8 +2227,8 @@ class WorkspaceTests final : public QObject {
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(savedFile), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(!projects->busy() && !projects->dirty(), 5000);
         QCOMPARE(projectTitle->text(), QFileInfo(savedFile).fileName());
-        QVERIFY(recents->isEnabled());
-        QCOMPARE(recents->itemData(1).toString(), savedFile);
+        QVERIFY(recents->menuAction()->isEnabled());
+        QCOMPARE(recents->actions().first()->data().toString(), savedFile);
         projects->open(savedFile);
         QTRY_VERIFY_WITH_TIMEOUT(!projects->busy() && session.settled(), 5000);
         QCOMPARE(nodes().size(), 2);

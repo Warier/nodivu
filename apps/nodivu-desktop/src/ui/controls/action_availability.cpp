@@ -1,4 +1,5 @@
 #include "ui/controls/action_availability.hpp"
+#include <QAction>
 #include <QEvent>
 #include <QHelpEvent>
 #include <QToolTip>
@@ -24,6 +25,15 @@ class ActionHint final : public QObject {
     }
 };
 } // namespace
+void setActionAvailability(QAction* action, const QString& purpose, const QString& reason) {
+    const auto description =
+        reason.isEmpty() ? purpose : purpose + QStringLiteral("\nIndisponível: ") + reason;
+    auto tooltip = description.toHtmlEscaped();
+    tooltip.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+    action->setToolTip(QStringLiteral("<qt>") + tooltip + QStringLiteral("</qt>"));
+    action->setStatusTip(description);
+    action->setEnabled(reason.isEmpty());
+}
 void setActionAvailability(QWidget* widget, const QString& purpose, const QString& reason) {
     if (!widget->property("actionHintInstalled").toBool()) {
         new ActionHint(widget);
