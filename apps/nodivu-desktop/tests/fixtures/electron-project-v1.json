@@ -1,0 +1,104 @@
+{
+  "format": "nodivu-project",
+  "version": 1,
+  "graph": {
+    "schema_version": 2,
+    "nodes": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "block": {
+          "kind": "plugin",
+          "plugin_id": "org.example.absent.player",
+          "source": true,
+          "consumer": false,
+          "parameters": {
+            "7": 0.375
+          },
+          "bypass": false
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "block": {
+          "kind": "gain",
+          "gain_db": -6,
+          "bypass": true
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "block": {
+          "kind": "output",
+          "endpoint_id": null
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "block": {
+          "kind": "plugin",
+          "plugin_id": "org.example.absent.capture",
+          "source": true,
+          "consumer": false,
+          "parameters": {},
+          "bypass": false
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "00000000-0000-4000-8000-000000000001",
+        "from_port": 0,
+        "to": "00000000-0000-4000-8000-000000000002",
+        "to_port": 0
+      },
+      {
+        "from": "00000000-0000-4000-8000-000000000002",
+        "from_port": 0,
+        "to": "00000000-0000-4000-8000-000000000003",
+        "to_port": 0
+      }
+    ]
+  },
+  "positions": [
+    {
+      "node_id": "00000000-0000-4000-8000-000000000001",
+      "x": 80,
+      "y": 130.5
+    },
+    {
+      "node_id": "00000000-0000-4000-8000-000000000002",
+      "x": 330.25,
+      "y": 130.5
+    },
+    {
+      "node_id": "00000000-0000-4000-8000-000000000003",
+      "x": 580.5,
+      "y": 130.5
+    },
+    {
+      "node_id": "00000000-0000-4000-8000-000000000004",
+      "x": 830.75,
+      "y": 130.5
+    }
+  ],
+  "camera": {
+    "x": -83,
+    "y": 120,
+    "scale": 0.75
+  },
+  "resources": [
+    {
+      "node_id": "00000000-0000-4000-8000-000000000001",
+      "path": "Áudio\\voz.wav"
+    }
+  ],
+  "captures": [
+    {
+      "node_id": "00000000-0000-4000-8000-000000000004",
+      "selection": {
+        "mode": "application",
+        "executable": "C:\\Nodivu Fixture\\Áudio.exe"
+      }
+    }
+  ]
+}

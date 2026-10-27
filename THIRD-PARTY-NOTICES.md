@@ -2,6 +2,14 @@
 
 O código original do Nodivu, inclusive seus plugins e exemplos, está sob a [licença MIT](LICENSE). Dependências mantêm suas próprias licenças; a licença do projeto não concede direitos sobre marcas de terceiros.
 
+## Frontend Qt/C++ em desenvolvimento
+
+Qt 6.12.0 (link dinâmico), Monocypher 4.0.3 e miniz 3.1.2 substituem as dependências web no novo frontend. Consulte [licenças, origem e condições de distribuição](apps/nodivu-desktop/THIRD-PARTY.md). `scripts/qt/Package-Licenses.ps1` inclui os textos completos Qt, Rust, CLAP, RNNoise, bibliotecas C e runtime MSVC no pacote, sem Node/npm. O pacote Qt não inclui Electron, Chromium, Node, dependências npm nem o instalador VB-CABLE.
+
+Os avisos abaixo registram também a referência Electron e a distribuição pública anterior. As ferramentas legadas mantêm seus avisos próprios; não implicam dependência desses componentes no runtime Qt.
+
+## Distribuição anterior Electron
+
 - **Electron 44.2.0**, Chromium, Node.js e bibliotecas incorporadas: o build preserva `LICENSE`, `LICENSES.chromium.html` e os demais avisos do runtime. Versões resolvidas em `apps/nodivu-electron/package-lock.json`.
 - **CLAP 1.2.2**: cabeçalhos sob MIT, copyright Alexandre Bique. Texto integral em [third_party/clap-1.2.2/LICENSE](third_party/clap-1.2.2/LICENSE), com origem e hash no README dessa pasta.
 - **Dependências Rust**: versões registradas em `Cargo.lock`. Ao montar o app, `scripts/package-licenses.cjs` inclui os textos LICENSE/COPYING/NOTICE dos crates resolvidos, um inventário de versões/licenças e os avisos da biblioteca padrão Rust em `third-party/licenses/` do resultado.

@@ -1,4 +1,5 @@
-* text=auto
+# Match .editorconfig independently of the user's core.autocrlf setting.
+* text=auto eol=lf
 *.rs text eol=lf
 *.js text eol=lf
 *.cjs text eol=lf
@@ -14,4 +15,6 @@
 *.ico binary
 
 # Preserve audited upstream bytes and its original whitespace.
+third_party/** -text -whitespace
 third_party/rnnoise-0.2/** -text -whitespace
+third_party/qt-6.12.0-licenses/** -text

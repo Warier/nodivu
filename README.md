@@ -1,210 +1,68 @@
 # Nodivu
 
-> Conecte fontes de áudio, ajuste o som em blocos e escolha para onde ele vai.
+Mixer e roteador local de áudio com um editor de nós. O frontend em desenvolvimento usa **Qt Widgets/C++20**; o motor de áudio continua em Rust, sem alterações nesta migração. Código aberto, licença MIT, Windows x64.
 
-**Código aberto · MIT · Electron + Rust · Windows x64 · Em desenvolvimento**
+## Compilar e executar
 
-Nodivu é um mixer e roteador local de áudio com uma interface de nós. Use o microfone, arquivos ou áudio de aplicativos como fontes; combine e processe esses sinais e envie o resultado para uma saída do Windows.
-
-O projeto está em fase experimental. Este repositório contém o código necessário para montar o aplicativo, seus plugins principais e testes. Ainda não representa uma versão estável para produção.
-
-## Baixar
-
-[Instalador 0.2.0 para Windows x64](https://github.com/Warier/nodivu/releases/download/v0.2.0/Nodivu-0.2.0-windows-x64-setup.exe) · [Notas e checksums](https://github.com/Warier/nodivu/releases/tag/v0.2.0).
-
-Quem usa 0.1.3-beta.1 pode procurar atualizações em **Sistema**. Projetos e plugins do perfil são preservados. A instalação do VB-CABLE continua opcional e separada do motor; não mudamos dispositivos padrão do Windows.
-
-## Novidades da 0.2.0
-
-- Estúdio com blocos compactos, biblioteca por categorias recolhíveis/redimensionável, inspetor móvel e configurações ampliadas de plugins.
-- Gerenciador local: pasta/ZIP, documentação, ativação, versões/retorno, download verificável, cancelamento/progresso e limpeza de cache.
-- Limpeza de voz RNNoise na CPU (30 ms) e limitador de picos (5 ms), com intensidade/teto no bloco e ajustes no inspetor. Latências nativas e bypass são alinhados pelo Mixer.
-- Projetos abrem mesmo com plugins ausentes/desativados: parâmetros, fios e recursos ficam preservados; somente os caminhos dependentes ficam silenciosos.
-
-O cliente de catálogo assinado está implementado e testado, mas **o catálogo público ainda não está publicado**. Explorar exige uma origem de confiança distribuída pelo mantenedor; para esta versão, os quatro plugins principais acompanham o app e outros podem ser adicionados localmente. Instâncias ainda usam um pool limitado (oito tipos habilitados/oito blocos no grafo). Não há isolamento de crash de DLL nem loja de modelos de IA pesados.
-
-## Por que Nodivu?
-
-- **Roteamento visual:** arraste fios entre blocos, ramifique uma fonte e some sinais com o Mixer.
-- **Áudio contínuo:** uma rota válida com dispositivos selecionados começa a funcionar automaticamente. Ajustes de ganho e conexões não exigem um botão de iniciar a cada mudança.
-- **Fontes diferentes:** microfone, tom de teste, player MP3/WAV/M4A-AAC e captura de aplicativos Windows.
-- **Projetos reutilizáveis:** salve o grafo, posições, câmera e referências aos recursos; reabra pelo histórico de recentes.
-- **Plugins separados:** os plugins nativos podem ser recompilados e substituídos sem recompilar o aplicativo. O catálogo oferece aparência e controles declarativos simples.
-- **Processamento local:** o áudio permanece no motor nativo. O Electron troca comandos e estado com o backend, não amostras de áudio.
-
-## Como funciona
-
-```text
-Microfone ────────→ Ganho ──┐
-Player de áudio ────────────┼──→ Mixer ──→ Saída Windows
-Áudio de aplicativo ───────┘                  │
-                                             ├─ Fone / alto-falante
-                                             └─ CABLE Input, se instalado
-                                                  ↓
-                                           CABLE Output em outro app
-```
-
-Cada fio representa áudio. Uma saída pode alimentar vários blocos. Cada porta de entrada aceita um fio; para combinar fontes, conecte-as a entradas distintas do Mixer. Ganhos em série se acumulam: dois ajustes de 50% resultam em aproximadamente 25% da amplitude original.
-
-O backend Rust administra dispositivos, grafo, processamento e plugins. Um processo privado atende o Electron por JSONL em stdin/stdout. Ele faz parte do aplicativo; não é necessário iniciar um CLI ou servidor manualmente.
-
-## Plataformas e requisitos
-
-| Ambiente | Situação atual |
-|---|---|
-| Windows x64 | Aplicativo completo e áudio WASAPI. Validado localmente em Windows 10 22H2, build 19045.6466. |
-| Windows 11 x64 | Alvo do projeto; a validação em uma instalação limpa ainda está pendente. |
-| Linux | Edição e demonstração da interface, sem áudio real. Execução Linux nativa ainda precisa de validação. |
-| macOS / ARM64 | Sem suporte validado nesta etapa. |
-
-Para compilar o app completo no Windows, instale:
-
-1. **Node.js 22.12 ou superior**, com npm.
-2. **Rust via rustup**, usando o host `x86_64-pc-windows-msvc`. O arquivo `rust-toolchain.toml` fixa a toolchain 1.98.1 e seus componentes; Cargo sozinho não instala as ferramentas C++ necessárias.
-3. **Visual Studio 2022 Build Tools** ou Visual Studio 2022 com a carga **Desenvolvimento para desktop com C++**, MSVC x64 e Windows SDK. A configuração usada nos testes é MSVC 14.44 e SDK 10.0.26100.0; a captura precisa de `audioclientactivationparams.h`.
-4. **Windows PowerShell 5.1 ou PowerShell 7**, além de acesso à internet no primeiro build para baixar as dependências fixadas.
-
-O player usa Media Foundation do Windows. Edições Windows N podem precisar do componente de mídia correspondente. Python é opcional, apenas para experimentar o worker de exemplo. Qt, CMake, FFmpeg e VB-CABLE não são requisitos para o build normal.
-
-## Começar no Windows
-
-Depois de clonar ou extrair o código, abra um terminal na raiz do projeto:
+Requisitos: PowerShell 7, Rust conforme `rust-toolchain.toml`, Visual Studio 2022 com C++ x64/Windows SDK, CMake e Ninja. O kit Qt 6.12.0 e NSIS são baixados explicitamente com versões e SHA256 fixados. Node/npm não participam do build ou da execução Qt.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Electron.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Start-Electron.ps1
+./scripts/qt/Bootstrap-Dependencies.ps1 -Installer
+./scripts/Build-Desktop.ps1 -Test
+./scripts/Start-Desktop.ps1
 ```
 
-O primeiro comando compila o player, a captura, a limpeza de voz e o limitador nativos, compila o backend Rust, instala as dependências com `npm ci`, executa os testes Node e monta o aplicativo em **`.local/electron/nodivu-electron.exe`**. O segundo abre esse aplicativo. O parâmetro de execução de scripts vale somente para esse processo do PowerShell; não altera a política global.
-
-Não é preciso baixar DLLs do Nodivu, copiar uma pasta de outra máquina ou instalar o cabo virtual para começar. O runtime Electron e os avisos das dependências acompanham o app montado. Feche a cópia do Nodivu dessa pasta antes de reconstruí-la para evitar arquivos em uso. Execute sem overrides `CARGO_TARGET_DIR` ou `CARGO_BUILD_TARGET`, pois a interface usa `target/release`.
-
-### Primeiro teste de áudio
-
-1. Adicione **Player de áudio** e **Saída** pela lista de blocos.
-2. Selecione seu fone na Saída. Escolha no player um MP3, WAV ou M4A/AAC de até **10 minutos e 256 MiB**.
-3. Arraste um fio da saída do player até a entrada do bloco Saída. Pressione **Play**; teste pause e a barra de posição.
-4. Insira um bloco **Ganho** entre ambos e altere seu valor. O medidor deve acompanhar o sinal. Para retirar um fio, clique nele com o botão direito e escolha **Remover conexão**.
-5. Para testar a voz, use **Entrada** com seu microfone → Ganho → Saída. Prefira fones para evitar que o microfone recapture os alto-falantes.
-
-Ao selecionar dispositivos e conectar uma rota válida, o áudio fica pronto automaticamente. Play controla apenas o arquivo. Sem som, confira o aviso do bloco e a faixa de estado, a seleção do dispositivo, os fios, mute e bypass. Se um dispositivo desaparecer, o app não troca silenciosamente por outro.
-
-Para som de um jogo ou navegador, adicione **Áudio de aplicativos** e selecione o processo. É possível usar mais de uma instância e misturá-las. A captura copia o áudio: o programa original continua tocando em sua saída habitual. Navegadores podem incluir subprocessos; abas individuais não são separadas. O modo de áudio do PC com exclusão do Nodivu ainda é experimental.
-
-### Usar o resultado como microfone em outro programa
-
-Com o **VB-CABLE instalado separadamente**, escolha **CABLE Input** no bloco Saída do Nodivu. No programa que vai receber o áudio, escolha **CABLE Output** como microfone. Os nomes correspondem aos dois lados do cabo: Nodivu envia para o lado de reprodução, e o outro programa recebe pelo lado de gravação.
-
-O Nodivu não instala drivers nem altera os dispositivos padrão do Windows. Sem um cabo/driver virtual instalado, uma saída de fone não se transforma em microfone virtual. A recepção por outro processo foi testada localmente; testes específicos em Discord, jogos e outros consumidores ainda são necessários.
-
-### Projetos e navegação
-
-Use **Salvar**, **Abrir**, **Recentes** e o botão de pasta. A pasta sugerida é `Documentos/Nodivu/Projetos`; o caminho real respeita a configuração de Documentos do Windows. O arquivo `.nodivu.json` guarda referências aos áudios, não os incorpora. Ao compartilhar um projeto, disponibilize também os arquivos usados e revise os dispositivos no outro computador.
-
-Arraste uma área vazia ou use o botão do meio para mover a câmera. Use Ctrl + roda do mouse ou os botões `+`/`−` para zoom, e **Enquadrar** para localizar os blocos. Abrir um projeto retoma a rota válida, mas não começa a tocar um arquivo automaticamente.
-
-### Estúdio e configurações dos blocos (desenvolvimento)
-
-A biblioteca pode ser recolhida pelo botão ☰, redimensionada pela borda e organizada por categorias. Arraste os cartões ou clique para adicionar. Os blocos são compactos; **⋯** abre um painel flutuante com seus ajustes completos, arrastável pelo cabeçalho. **Inspetor** reabre o painel e **⌖** o posiciona no canto. Clique num fio para identificar seus dois lados e a porta de entrada.
-
-**Sistema** reúne VB-CABLE, dispositivos, recuperação, atualizações e logs; **Escuta** abre o monitoramento local. A mudança visual preserva as rotas, projetos e ativação automática do áudio. Está no desenvolvimento, ainda fora do release 0.1.3-beta.1.
-
-Autores de plugins podem organizar configurações em abas/grupos, separar controles rápidos e avançados e usar listas de opções. Veja o [contrato da interface de plugins](PLUGIN-UI.md), com campos, limites, compatibilidade, exemplos e os recursos que ainda exigem contratos adicionais.
-
-## Desenvolver a interface, inclusive no Linux
-
-A interface usa **Electron 44.2.0, JavaScript, HTML, CSS e SVG**, sem React, TypeScript ou bundler. `main.cjs` gerencia janelas e o backend; `preload.cjs` expõe a ponte limitada; `ui/renderer.js`, `ui/blocks/`, `ui/style.css` e `ui/viewport.js` implementam o editor.
-
-```sh
-cd apps/nodivu-electron
-npm ci
-npm run dev:ui
-npm run test:ui
-```
-
-`dev:ui` abre uma demonstração explicitamente identificada com dispositivos simulados. Serve para editar layout, blocos e interações sem Rust, MSVC, Windows ou dispositivos reais; **não processa áudio**. No Linux é necessária uma sessão gráfica e as bibliotecas de sistema exigidas pelo Electron. Não execute como root nem desative o sandbox para contornar falhas de ambiente.
-
-Para desenvolver com o backend real no Windows, rode o build completo uma vez e depois `npm start` nessa pasta. Reinicie o app após mudar os arquivos. Ao alterar Rust ou plugins, recompile a parte correspondente; o build completo também atualiza a cópia em `.local/electron`.
-
-## Organização do código
-
-```text
-apps/nodivu-electron/       Interface, processo principal, demonstração e testes
-crates/
-  nodivu-app-backend/       Host privado do app, catálogo e controle de plugins
-  nodivu-core/              Modelos, validação, protocolos e projetos
-  nodivu-engine/            Dispositivos WASAPI e execução do grafo
-  nodivu-ipc/               Transporte de comandos limitado por JSONL
-  nodivu-block/             Contrato interno de processamento
-  nodivu-plugin-gain/       Ganho interno
-  nodivu-plugin-tone/       Gerador interno de tom
-  nodivu-clap-host/         Host CLAP e ponte opcional para workers
-plugins/
-  mp3-player/              Player real: decoder, transporte e adaptador CLAP
-  windows-audio/           Captura real: aquisição, fila e adaptador CLAP
-examples/                 Plugins pequenos e worker Python para estudo/testes
-scripts/                  Build, inicialização e ensaios de desenvolvimento
-third_party/clap-1.2.2/    Cabeçalhos e licença do contrato CLAP
-```
-
-`Cargo.lock` e `package-lock.json` fazem parte do código versionado. `target/`, `.local/`, `.tools/` e `node_modules/` são gerados. Esta árvore não inclui Qt, o CLI interativo antigo, documentos internos de planejamento, binários do instalador, drivers, perfis pessoais ou projetos salvos.
-
-### Recuperação automática de projetos (desenvolvimento)
-
-Enquanto há alterações não salvas, o app guarda uma cópia local aproximadamente a cada cinco segundos, depois de aplicar as edições pendentes. Se o Nodivu fechar inesperadamente, a próxima abertura mostra **Projeto não salvo encontrado → Restaurar cópia**. A restauração depende desse clique: não abre nem começa a tocar um projeto automaticamente na inicialização.
-
-A cópia preserva blocos, fios, posições, zoom e referências dos arquivos de áudio. O arquivo original não é sobrescrito. Depois de restaurar, o projeto aparece como não salvo; use **Salvar…** para escolher onde guardá-lo. A restauração prepara o áudio como a abertura normal, mas não inicia o Play de arquivos. A posição de reprodução, PCM, medidores e escuta local não fazem parte da cópia.
-
-Existe uma cópia por perfil, em `%APPDATA%\Nodivu\recovery\recovery.nodivu.json` no app instalado (no desenvolvimento: `.local/electron-profile/recovery`). Uma cópia anterior fica protegida até ser restaurada ou descartada explicitamente. Salvar o projeto ou confirmar o descarte ao fechar remove a cópia da sessão atual; cancelar preserva tudo. Falha do backend também oferece a cópia após reconectar. Erros de escrita ficam visíveis no painel Recuperação e nos logs; cópias inválidas são preservadas para diagnóstico.
-
-É uma proteção complementar: os últimos segundos ainda podem se perder e uma falha de disco pode impedir gravar a cópia. Continue usando Salvar. A demonstração de frontend mantém suas cópias em uma pasta separada. Esta funcionalidade está somente no desenvolvimento, fora do release 0.1.3-beta.1. Para repetir o ensaio real de encerramento abrupto e restauração, depois de montar o app execute `./scripts/Test-Recovery.ps1`; o ensaio usa um perfil temporário próprio.
-
-### Escutar a saída final nos fones (desenvolvimento)
-
-Em **Escuta** (ou **Sistema → Escuta local → Ouvir minha saída**), selecione seus fones e clique em **Ligar escuta**. Mantenha **CABLE Input** na saída principal para enviar o mesmo mix aos outros apps. Ganhos, plugins, players, Mixer e Silenciar tudo já fazem parte do áudio copiado. Desligar a escuta libera apenas os fones; o cabo continua recebendo áudio. A saída principal não pode ser escolhida como escuta.
-
-A escuta começa desligada ao abrir o app e não é salva dentro do projeto. Nenhum dispositivo ou volume padrão do Windows muda. Use fones para evitar que o microfone recapture os alto-falantes. Se a saída secundária desaparecer, o painel informa a falha, sem trocar de dispositivo ou interromper a saída principal; desligue e ligue a escuta para tentar novamente.
-
-A cópia é feita no backend após o processamento, por uma fila estéreo limitada de 4096 frames, sem executar os plugins novamente e sem PCM passando pelo Electron. O relógio dos fones é independente: a escuta usa pré-enchimento alvo de 20 ms, além dos buffers dos dispositivos. A correção inicial de deriva descarta backlog antigo ou volta ao pré-enchimento; pode haver descontinuidades sob carga. Isso não adiciona espera ao caminho principal e não é garantia de latência ponta a ponta ou monitoramento profissional sem falhas.
-
-Essa funcionalidade está no código de desenvolvimento, **fora do release 0.1.3-beta.1**. Para testar, faça o build local. Ensaio real repetível: `node scripts/Test-LocalMonitor.cjs <id-saida-principal> <id-saida-monitor> <id-captura-pareada-monitor>`. Use um cabo na saída de monitor para medir a recepção; IDs devem vir de `devices.list`, sem escolher por posição. O teste verifica ganho, mute, liga/desliga e ausência de reabertura da saída principal. Para testar o painel, defina `NODIVU_TEST_PRIMARY` e `NODIVU_TEST_MONITOR` com IDs explícitos e execute `./scripts/Test-Electron.ps1 -Monitor`.
-
-### Trabalhar nos plugins
-
-O Estúdio agora tem **Sistema → Plugins instalados** e **Gerenciar plugins** na biblioteca. Nesta primeira etapa, **Adicionar pasta local** importa uma pasta que contenha `plugin.json` e sua biblioteca `.clap`. Não é preciso compilar o Nodivu de novo. Confira a origem do pacote antes de instalar código nativo.
-
-Ativação, desativação e remoção ficam pendentes até fechar e abrir o app; salve o projeto antes. A remoção pode ser cancelada antes de reiniciar e arquiva os arquivos, sem apagar projetos. Pacotes que acompanham o app podem ser desativados. Também aceita ZIP/.nodivu-plugin, README com imagens locais e atualização de pacotes versionados com retorno à versão anterior. As abas Explorar e Atualizações já consomem catálogos assinados TUF; a origem pública ainda não está publicada. Veja [cliente da loja e publicação](PLUGIN-STORE.md). Veja [regras e limites do gerenciamento local](PLUGIN-UI.md#gerenciamento-local-de-pacotes).
-
-Para recompilar apenas um plugin, a partir da raiz:
+O build completo compila o backend existente, os quatro plugins principais e o frontend. Para editar somente a interface, use `./scripts/Build-Desktop.ps1 -FrontendOnly -Test`. Não há arquivos `.ui` nem editor gráfico obrigatório: widgets, layout, tema e cena são definidos por código C++.
 
 ```powershell
-./scripts/Build-Mp3Plugin.ps1
-./scripts/Build-WindowsAudioPlugin.ps1
+./scripts/Build-Release.ps1 -SkipBuild
 ```
 
-Cada comando compila somente sua biblioteca e copia o manifesto e o binário para `.local/plugins/` e `.local/electron/plugins/`. Feche o app antes e reabra depois. O player mantém o ID `org.nodivu.mp3-player` por compatibilidade dos projetos.
+Gera ZIP portátil, instalador NSIS por usuário, licenças e inventário SHA256 em `.local/qt-packages`. Não publica nem instala automaticamente. O ZIP inclui `Nodivu Portable.cmd`, que usa perfil separado ao lado do executável. A instalação normal usa `%APPDATA%/Nodivu`; projetos ficam em Documentos/Nodivu/Projetos.
 
-Os plugins nativos usam CLAP/ABI C e são carregados dentro do processo do backend. Podem ser escritos em uma linguagem capaz de exportar essa ABI; são código de confiança e não têm isolamento contra falhas nativas. O suporte atual é um subconjunto de CLAP, não um host universal de plugins de áudio.
+[Guia técnico e testes](apps/nodivu-desktop/README.md) · [Extensão de plugins e controles](apps/nodivu-desktop/EXTENDING.md) · [Atualizador](apps/nodivu-desktop/UPDATES.md) · [Matriz de aceite](apps/nodivu-desktop/ACCEPTANCE.md).
 
-Para estudar um efeito pequeno, leia [examples/clap-gain/plugin.c](examples/clap-gain/plugin.c) e seu [plugin.json](examples/clap-gain/plugin.json). `Prepare-DemoPlugin.ps1` compila e adiciona esse exemplo. O manifesto define ID, biblioteca, título, cor, layout e controles; sua validação está em [plugin.rs](crates/nodivu-app-backend/src/plugin.rs), e a interface genérica em [plugin.js](apps/nodivu-electron/ui/blocks/plugin.js). Cada pacote ocupa uma pasta, com caminho da biblioteca relativo ao manifesto. A leitura do catálogo ocorre ao iniciar o backend.
+## Usar o Estúdio
 
-No player, [player/](plugins/mp3-player/player/) contém a lógica de áudio e [adapter/](plugins/mp3-player/adapter/) a integração. Os headers `file_player.h` e `capture_source.h` nos adaptadores descrevem as extensões privadas utilizadas pelo app. Alterar a aparência básica e os parâmetros pelo manifesto não exige mudar o renderer; controles especializados, como o transporte do player, ainda têm integração própria na interface.
+Adicione blocos na biblioteca e conecte suas portas. Uma saída pode ramificar; cada porta de entrada recebe um fio. Use entradas distintas do Mixer para somar fontes. O inspetor apresenta controles definidos pelos descritores dos plugins.
 
-O [worker Python](examples/python-worker/) demonstra processamento fora do callback em outro processo, com filas limitadas e atraso explícito. Para prepará-lo, use `./scripts/Prepare-PythonWorker.ps1 -Python 'caminho/do/python.exe'` e reinicie o app. Ele é um exemplo de ganho, não um modelo de IA ou serviço de TTS pronto. A referência do protocolo implementado fica em [worker_process/](crates/nodivu-clap-host/src/worker_process/) e no próprio exemplo.
+- **Entrada, tom e captura de aplicativos:** fontes locais de áudio; a captura pode incluir subprocessos.
+- **Player:** MP3, WAV e M4A/AAC até 10 minutos/256 MiB; reprodução, pausa e busca.
+- **Ganho, Mixer, limpeza de voz e limitador:** processamento no backend, sem PCM passando pela interface.
+- **Saída e Escuta:** dispositivos selecionados por IDs do backend, sem alterar padrões ou volumes do Windows.
+- **Projetos:** grafo, posições, câmera e referências aos arquivos; recentes, recuperação e plugins ausentes preservados.
+- **Gerenciar plugins:** importação de pasta/ZIP, versões, ativação, remoção adiada, catálogo autenticado e consulta offline.
 
-## Verificação
+Rotas válidas entram em operação automaticamente ao selecionar dispositivos e conectar os blocos. Abrir um projeto prepara os arquivos, mas não inicia a reprodução. Se um endpoint desaparecer, não há troca automática para outro. Para começar, conecte Player → Saída, escolha explicitamente um dispositivo e um arquivo, depois pressione Play. Prefira fones ao usar o microfone.
 
-### Diagnóstico de falhas
+O painel **Roteamento** (`Ctrl+Shift+R`) permite navegar por blocos e conexões com controles nativos e teclado. O grafo oferece pan, zoom e enquadramento. O áudio e os plugins nativos ficam no processo Rust; a interface comunica intenções por JSONL limitado em stdin/stdout.
 
-Desde 0.1.2, microfones comuns não precisam estar configurados em 44,1/48 kHz: PCM de 8/16/24/32 bits e float32 têm conversão automática, incluindo 16 kHz. Taxas altas e mais canais usam o conversor do Windows. Há limites de segurança (8–384 kHz, até 32 canais); a negociação depende do driver. Erros incluem formato observado e etapa. Se somente o microfone falhar, o player e as demais fontes continuam; use **Reabrir dispositivos** para tentar a entrada novamente.
+## Organização
 
-Desde a versão 0.1.1, **Abrir logs de diagnóstico** abre a pasta de registros locais. No aplicativo instalado ela fica em `%APPDATA%\Nodivu\logs`; em desenvolvimento, em `.local/electron-profile/logs`. Há dois arquivos rotativos, `nodivu.log` e `nodivu.previous.log`, de até 1 MiB cada. Eles registram versão do app/Windows, inicialização, falhas do backend e descoberta de dispositivos. Nenhum áudio é gravado ou enviado automaticamente. Mensagens do Windows podem conter nomes, IDs ou caminhos; revise os arquivos antes de compartilhá-los.
+```text
+apps/nodivu-desktop/
+  src/app/           Inicialização e composição
+  src/backend/       Processo e transporte JSONL
+  src/contracts/     Descritores e respostas da API
+  src/features/      Grafo, inspetor, projetos, plugins, loja e atualizações
+  src/platform/      Perfil, instalação e adaptadores Windows
+  src/security/      JSON estrito e metadados autenticados
+  src/ui/theme/      Cores, medidas e aparência
+  tests/             Fronteiras, falhas e integração com Rust real
+crates/              Backend, domínio, motor WASAPI e host CLAP existentes
+plugins/             Player, captura, limpeza de voz e limitador
+scripts/qt/          Dependências, build, pacote e ensaios nativos
+third_party/         Fontes e licenças das dependências incorporadas
+apps/nodivu-electron/ Referência da interface anterior durante o aceite
+```
 
-Uma falha na descoberta de áudio não impede editar/salvar o grafo. A faixa superior mostra a causa e oferece **Tentar detectar novamente**. Se acabou de instalar o VB-CABLE, reinicie o Windows antes de repetir o teste. Aparecer nas opções do sistema não garante que todas as consultas ao dispositivo já estejam prontas.
+Plugins independentes usam CLAP/ABI C e manifestos declarativos. Um novo plugin compatível pode ser instalado sem recompilar o host. [Contrato nativo](PLUGIN-NATIVE.md), [pacotes](PLUGIN-PACKAGE.md), [loja](PLUGIN-STORE.md) e [UI declarativa](PLUGIN-UI.md). DLLs de terceiros executam no backend e ainda não possuem isolamento contra crashes.
 
-### Testes
+## Plataformas e validação
 
-Na raiz, com as ferramentas de desenvolvimento instaladas:
+Windows 10 x64 e Windows 11 x64 são os alvos obrigatórios. Qt 6.12 é mantido explicitamente por compatibilidade com Windows 10; futuras trocas de versão precisam revisar esse requisito. Linux/macOS exigirão adaptadores e validação próprios, inclusive de áudio, e não são plataformas entregues nesta etapa.
+
+Os testes locais cobrem protocolo, persistência/recuperação, plugins, loja/TUF, player, atualizador e instalação transacional. Ensaios de áudio exigem endpoints explícitos. O backend continua sujeito aos seus gates existentes:
 
 ```powershell
 cargo fmt --all -- --check
@@ -213,51 +71,12 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 ```
 
-Depois de `Build-Electron.ps1`, execute:
+A [matriz de aceite](apps/nodivu-desktop/ACCEPTANCE.md) distingue implementação de validação. Faltam Windows 10, PC limpo, aceite visual/DPI/leitor de tela, medições completas de desempenho e operação do canal de atualização Qt. O frontend Electron permanece como referência até esses gates; isso não é uma dependência do pacote Qt.
 
-```powershell
-./scripts/Test-Electron.ps1 -Project -Viewport -Capture
-cd apps/nodivu-electron
-npm test
-```
+## Release anterior
 
-O smoke verifica a interface e sua integração com o backend; sem `-Audio`, não abre streams de dispositivos. Ensaios que reproduzem/capturam áudio são separados e exigem endpoints explícitos. Veja [o ensaio de captura](plugins/windows-audio/README.md). O teste de formatos e limite do player é `Test-MediaPlayer.ps1 -Ffmpeg 'caminho/do/ffmpeg.exe'`; FFmpeg é ferramenta opcional de teste e não acompanha o app.
-
-## Limites atuais e contribuições
-
-Ainda faltam validação ampla em outros PCs, estabilidade prolongada e medição de latência ponta a ponta. O modo global de captura precisa de mais testes de exclusão. Undo/redo e um SDK de plugins mais completo são próximos passos; não são promessas de funcionalidades já disponíveis.
-
-### Atualizações e releases
-
-A partir de **0.1.3-beta.1**, o app instalado consulta o canal de testes no GitHub Releases ao abrir (após 15 segundos) e a cada seis horas. No painel **Atualizações**, você pode verificar, baixar e escolher **Reiniciar e atualizar**. O áudio só é interrompido após sua confirmação; salve as alterações do projeto antes. Fechar o app não instala automaticamente. Falhas de rede não impedem usar a versão instalada.
-
-Quem está na **0.1.2 ou anterior precisa instalar esta versão manualmente uma única vez**. O novo instalador NSIS adota a pasta da instalação Inno anterior. Projetos em Documentos/Nodivu/Projetos, perfil em `%APPDATA%\Nodivu` e VB-CABLE são preservados. Plugins de terceiros passam para `%APPDATA%\Nodivu\plugins`; adicione novos pacotes nessa pasta. Os plugins internos `mp3` e `windows-audio` são gerenciados pelo aplicativo. Depois do reinício, abra seu projeto nos Recentes.
-
-O instalador de testes ainda não tem assinatura Authenticode. O download usa HTTPS e a biblioteca verifica o SHA-512 publicado no feed; isso não substitui uma assinatura do editor. O controle de publicação da conta GitHub é parte da confiança da distribuição.
-
-Para gerar o instalador, rode `./scripts/Build-Release.ps1`. Ele monta o app, preserva licenças e inclui o instalador original do VB-CABLE básico (checksum fixado). A instalação do cabo é opcional, pelo botão no app, com confirmação e permissões solicitadas pelo próprio fornecedor. Atualizações do Nodivu não reinstalam nem reconfiguram o driver.
-
-O resultado em `.local/releases` inclui `.exe`, `.exe.blockmap` e `beta.yml`. Publique esses arquivos **da mesma execução de build** em uma prerelease com tag correspondente à versão do `package.json`; não edite hashes manualmente. `--publish never` é o padrão: compilar não publica. GitHub hospeda o feed e os downloads; não é necessário servidor próprio.
-
-### Fluxo de desenvolvimento
-
-`main` recebe mudanças verificadas. Funcionalidades são desenvolvidas em branches curtas (`feat/...`, `fix/...`) e integradas após revisão e testes. Commits comuns não geram releases nem alteram automaticamente a versão distribuída. Tags `v...` e GitHub Releases ficam reservados para entregas escolhidas aos testadores, com versão incrementada, notas, build e validação. Não manter uma branch `develop` permanente neste estágio reduz divergências desnecessárias.
-
-
-O grafo atual admite uma entrada de dispositivo e uma saída principal de dispositivo (mais uma escuta local opcional), até oito ganhos e oito instâncias externas no total. O catálogo é limitado a oito tipos externos. Múltiplos players e capturas de aplicativos usam instâncias externas independentes. Processamento é limitado deliberadamente para manter trabalho previsível; não há garantia de latência zero.
-
-Contribuições são bem-vindas. Descreva o problema, a mudança e os testes feitos. Preserve IDs dos plugins e compatibilidade dos projetos; alterações no callback de áudio precisam manter buffers limitados, sem acesso a disco/rede, alocações ou esperas por comandos. Não troque dispositivos, volumes globais ou padrões do Windows para fazer um teste passar. Testes com dispositivos simulados não demonstram funcionamento em hardware.
+A [release pública 0.2.0](https://github.com/Warier/nodivu/releases/tag/v0.2.0) usa Electron. Seus binários e feed permanecem os originais. Para trabalhar especificamente nessa referência, consulte [o guia legado](apps/nodivu-electron/README.md). `Build-Release.ps1` agora gera o candidato Qt; `Build-ElectronRelease.ps1` preserva o empacotamento anterior.
 
 ## Licença
 
-[MIT](LICENSE): uso, modificação e distribuição, inclusive comercial, mantendo os avisos da licença. Consulte também os [avisos de dependências](THIRD-PARTY-NOTICES.md). CLAP, Electron e seus componentes mantêm suas licenças próprias; nenhum direito sobre marcas de terceiros é transferido.
-
-### Testar limpeza de voz
-
-Monte **Microfone → Limpeza de voz → Ganho → Limitador de picos → Saída**. Para misturar o player, coloque o limitador depois do Mixer. Comece com ganho 0 dB, limpeza 100% e teto −1 dBFS. Use o inspetor para ajustar intensidade e retorno do limitador; o bypass preserva a latência. Compare a voz e o ruído com fones ou pela Escuta quando a saída principal for o cabo virtual. RNNoise é destinado a fala, pode alterar música e não reconstrói áudio já gravado com distorção. O limitador protege a saída deste bloco; um ganho colocado depois dele pode saturar novamente.
-
-Gates adicionais: `./scripts/Test-AudioCleanup.ps1` (DSP sem dispositivos) e `node scripts/check-cleanup.cjs` (WASAPI real, tom baixo). A medição neste PC não garante custo/qualidade iguais em outro hardware; testes de voz subjetivos e Windows 11 continuam necessários.
-
-## Plugins independentes e catálogo de teste
-
-O desenvolvimento posterior à 0.2.0 inclui [catálogo público experimental](https://github.com/Warier/nodivu-plugins), [Ducking](https://github.com/Warier/nodivu-ducking) e [Botão de fala](https://github.com/Warier/nodivu-talk-button). No app atualizado, abra Gerenciar plugins → Explorar, instale e reabra. A release original 0.2.0 precisa de atualização do host antes de usar estes pacotes API 2. Nenhuma release nova do aplicativo foi gerada automaticamente. [Contrato nativo e comandos de validação](PLUGIN-NATIVE.md).
+[MIT](LICENSE). Dependências mantêm suas próprias licenças: [avisos](THIRD-PARTY-NOTICES.md) e [distribuição Qt](apps/nodivu-desktop/THIRD-PARTY.md). Nenhum driver é instalado pelo build/pacote Qt. VB-CABLE é opcional, instalado separadamente pelo usuário; Nodivu não cria dispositivos virtuais.

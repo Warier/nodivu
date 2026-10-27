@@ -16,11 +16,20 @@
 !/apps/
 /apps/*
 !/apps/nodivu-electron/
+!/apps/nodivu-desktop/
 !/crates/
 !/plugins/
 !/examples/
 !/scripts/
 !/third_party/
+
+# Documentação Qt local
+/apps/nodivu-desktop/**/*.md
+# Necessário ao empacotamento dos avisos de dependências.
+!/apps/nodivu-desktop/THIRD-PARTY.md
+
+# Resultados locais de medições Qt.
+/apps/nodivu-desktop/benchmarks/
 
 # Dependencies, output, profiles, local media and editor state are never source.
 **/node_modules/
@@ -30,6 +39,12 @@
 **/__pycache__/
 **/.idea/
 **/.vscode/
+# Local CMake/Visual Studio configuration and generated build metadata.
+**/CMakeUserPresets.json
+**/CMakeCache.txt
+**/CMakeFiles/
+**/compile_commands.json
+**/.vs/
 *.pyc
 *.log
 *.tmp

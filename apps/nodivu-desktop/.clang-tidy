@@ -1,0 +1,3 @@
+Checks: '-*,bugprone-*,performance-*,modernize-use-nullptr,modernize-use-override,cppcoreguidelines-owning-memory'
+WarningsAsErrors: 'bugprone-*,performance-*'
+HeaderFilterRegex: '.*/nodivu-desktop/src/.*'

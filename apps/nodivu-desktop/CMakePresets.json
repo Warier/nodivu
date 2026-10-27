@@ -1,0 +1,19 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-release",
+      "displayName": "Windows x64 — Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../../.local/qt-build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/../../.tools/Qt",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../../.local/qt-desktop",
+        "BUILD_TESTING": "ON"
+      }
+    }
+  ],
+  "buildPresets": [{"name": "windows-release", "configurePreset": "windows-release"}],
+  "testPresets": [{"name": "windows-release", "configurePreset": "windows-release", "output": {"outputOnFailure": true}}]
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "qt_version": "6.12.0",
+  "kit": "MSVC2022-x64",
+  "archives": [
+    {
+      "component": "QtBase",
+      "destination": "Qt",
+      "file": "qtbase-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/qt.qt6.6120.win64_msvc2022_64/6.12.0-0-202609280346qtbase-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "sha256": "219d1b86def3be418e31d704572bc4acc91b2ec373c65595c9fb12b42bf098dc"
+    },
+    {
+      "component": "QtImageFormats",
+      "destination": "Qt",
+      "file": "qtimageformats-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/qt.qt6.6120.addons.qtimageformats.win64_msvc2022_64/6.12.0-0-202609280346qtimageformats-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "sha256": "b5a5729e0dab582a3676bf82ffc77b9de5f95bb9d0a60226f730d97fad2db448"
+    },
+    {
+      "component": "NSIS",
+      "destination": "nsis",
+      "file": "nsis-3.13.zip",
+      "url": "https://phoenixnap.dl.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip",
+      "sha256": "ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8",
+      "installer_only": true
+    }
+  ]
+}

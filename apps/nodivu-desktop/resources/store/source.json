@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "metadata_url": "https://warier.github.io/nodivu-plugins/metadata/",
+  "target_url": "https://warier.github.io/nodivu-plugins/targets/",
+  "root": "{\"signatures\":[{\"keyid\":\"76281e38c9b535414f239eedfd4a49ce14e7729e7b674fbb58520496e9ce0353\",\"sig\":\"f732ca432f6d182af866232a8b5296aa8bfead63fc7dbdc18ec37b69e3e63d7c133b5424cf9a394220f4caf2fdcefa462028ec734b522829f691f731de335202\"}],\"signed\":{\"_type\":\"root\",\"spec_version\":\"1.0.31\",\"version\":1,\"expires\":\"2027-10-13T21:31:38.531Z\",\"keys\":{\"76281e38c9b535414f239eedfd4a49ce14e7729e7b674fbb58520496e9ce0353\":{\"keytype\":\"ed25519\",\"scheme\":\"ed25519\",\"keyval\":{\"public\":\"37d1c945351c11455f8ccced53bcf2633514f98c88752389252d9658525036d2\"}},\"69d3f68493fc69529b4622720d1b3df1b61c016b51ad9fabb19cc7aa95fcf5ec\":{\"keytype\":\"ed25519\",\"scheme\":\"ed25519\",\"keyval\":{\"public\":\"c24c58983b257f2b5267e9486eff1a4529c970bbbc0b5e67e6c891163858c404\"}},\"427454cba1c150531103e214cf08e8069bed82ccb9c72b78ab7cf8587e7e1d45\":{\"keytype\":\"ed25519\",\"scheme\":\"ed25519\",\"keyval\":{\"public\":\"93f40b01fdde8a7acf092e93f4f81dcc2e0811b6322682856ce270de44ac9d4c\"}},\"4a01cb65b05730dfeb467019499fed7876039a3ddb09197cc39f4b58528231ad\":{\"keytype\":\"ed25519\",\"scheme\":\"ed25519\",\"keyval\":{\"public\":\"d1efb9b90b5894ca21aace7193fdedc5ee9ff89495b498a91e296a01f5c16249\"}}},\"roles\":{\"root\":{\"keyids\":[\"76281e38c9b535414f239eedfd4a49ce14e7729e7b674fbb58520496e9ce0353\"],\"threshold\":1},\"targets\":{\"keyids\":[\"69d3f68493fc69529b4622720d1b3df1b61c016b51ad9fabb19cc7aa95fcf5ec\"],\"threshold\":1},\"snapshot\":{\"keyids\":[\"427454cba1c150531103e214cf08e8069bed82ccb9c72b78ab7cf8587e7e1d45\"],\"threshold\":1},\"timestamp\":{\"keyids\":[\"4a01cb65b05730dfeb467019499fed7876039a3ddb09197cc39f4b58528231ad\"],\"threshold\":1}},\"consistent_snapshot\":false}}",
+  "official_publishers": [
+    "nodivu"
+  ]
+}
