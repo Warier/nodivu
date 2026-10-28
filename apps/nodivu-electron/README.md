@@ -1,6 +1,6 @@
 # Referência Electron
 
-Este frontend é a referência da release pública 0.2.0 e da comparação de paridade durante a migração. O frontend principal em desenvolvimento é [Qt/C++](../nodivu-desktop/README.md). Não é necessário Node para compilar ou executar o pacote Qt.
+Este frontend é a referência da release pública 0.2.0 e permanece disponível para comparação. A migração foi aceita e o frontend principal é [Qt/C++](../nodivu-desktop/README.md). Não é necessário Node para compilar ou executar o pacote Qt.
 
 Para reconstruir especificamente a referência Electron, a partir da raiz, com Node 22.12+, Rust e MSVC:
 
@@ -10,7 +10,7 @@ Para reconstruir especificamente a referência Electron, a partir da raiz, com N
 ./scripts/Test-Electron.ps1 -Project -Viewport -Capture
 ```
 
-`scripts/Build-ElectronRelease.ps1` preserva o empacotamento anterior e não publica automaticamente. Não o confundir com `scripts/Build-Release.ps1`, que gera o candidato Qt.
+`scripts/Build-ElectronRelease.ps1` preserva o empacotamento anterior e não publica automaticamente. Não o confundir com `scripts/Build-Release.ps1`, que gera o pacote Qt.
 
 O renderer usa JavaScript/HTML/CSS/SVG, sem React. `main.cjs` administra o processo e o backend; `preload.cjs` limita a ponte; `ui/` implementa o Estúdio. `npm ci`, `npm test` e `npm run dev:ui` nesta pasta continuam disponíveis para referência. A demonstração tem dispositivos simulados, sem áudio real.
 

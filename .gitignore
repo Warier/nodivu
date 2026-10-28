@@ -23,11 +23,6 @@
 !/scripts/
 !/third_party/
 
-# Documentação Qt local
-/apps/nodivu-desktop/**/*.md
-# Necessário ao empacotamento dos avisos de dependências.
-!/apps/nodivu-desktop/THIRD-PARTY.md
-
 # Resultados locais de medições Qt.
 /apps/nodivu-desktop/benchmarks/
 

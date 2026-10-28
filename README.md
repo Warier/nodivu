@@ -1,6 +1,6 @@
 # Nodivu
 
-Mixer e roteador local de áudio com um editor de nós. O frontend em desenvolvimento usa **Qt Widgets/C++20**; o motor de áudio continua em Rust, sem alterações nesta migração. Código aberto, licença MIT, Windows x64.
+Mixer e roteador local de áudio com um editor de nós. O frontend principal usa **Qt Widgets/C++20** e o motor de áudio é Rust. A migração para Qt foi aceita; o Electron permanece no repositório para comparação. Código aberto, licença MIT, Windows x64.
 
 ## Compilar e executar
 
@@ -20,7 +20,7 @@ O build completo compila o backend existente, os quatro plugins principais e o f
 
 Gera ZIP portátil, instalador NSIS por usuário, licenças e inventário SHA256 em `.local/qt-packages`. Não publica nem instala automaticamente. O ZIP inclui `Nodivu Portable.cmd`, que usa perfil separado ao lado do executável. A instalação normal usa `%APPDATA%/Nodivu`; projetos ficam em Documentos/Nodivu/Projetos.
 
-[Guia técnico e testes](apps/nodivu-desktop/README.md) · [Extensão de plugins e controles](apps/nodivu-desktop/EXTENDING.md) · [Atualizador](apps/nodivu-desktop/UPDATES.md) · [Matriz de aceite](apps/nodivu-desktop/ACCEPTANCE.md).
+[Guia técnico e testes](apps/nodivu-desktop/README.md) · [Extensão de plugins e controles](apps/nodivu-desktop/EXTENDING.md) · [Atualizador](apps/nodivu-desktop/UPDATES.md).
 
 ## Usar o Estúdio
 
@@ -53,7 +53,7 @@ crates/              Backend, domínio, motor WASAPI e host CLAP existentes
 plugins/             Player, captura, limpeza de voz e limitador
 scripts/qt/          Dependências, build, pacote e ensaios nativos
 third_party/         Fontes e licenças das dependências incorporadas
-apps/nodivu-electron/ Referência da interface anterior durante o aceite
+apps/nodivu-electron/ Interface anterior preservada para comparação
 ```
 
 Plugins independentes usam CLAP/ABI C e manifestos declarativos. Um novo plugin compatível pode ser instalado sem recompilar o host. [Contrato nativo](PLUGIN-NATIVE.md), [pacotes](PLUGIN-PACKAGE.md), [loja](PLUGIN-STORE.md) e [UI declarativa](PLUGIN-UI.md). DLLs de terceiros executam no backend e ainda não possuem isolamento contra crashes.
@@ -71,11 +71,11 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 ```
 
-A [matriz de aceite](apps/nodivu-desktop/ACCEPTANCE.md) distingue implementação de validação. Faltam Windows 10, PC limpo, aceite visual/DPI/leitor de tela, medições completas de desempenho e operação do canal de atualização Qt. O frontend Electron permanece como referência até esses gates; isso não é uma dependência do pacote Qt.
+A migração para Qt foi aceita. Permanecem validações de compatibilidade em Windows 10 e instalação limpa, acessibilidade/DPI físico, desempenho e operação do canal público de atualização. Essas limitações estão descritas no [guia técnico](apps/nodivu-desktop/README.md#empacotar-e-verificar). O Electron continua disponível para comparação e não é uma dependência do pacote Qt.
 
 ## Release anterior
 
-A [release pública 0.2.0](https://github.com/Warier/nodivu/releases/tag/v0.2.0) usa Electron. Seus binários e feed permanecem os originais. Para trabalhar especificamente nessa referência, consulte [o guia legado](apps/nodivu-electron/README.md). `Build-Release.ps1` agora gera o candidato Qt; `Build-ElectronRelease.ps1` preserva o empacotamento anterior.
+A [release pública 0.2.0](https://github.com/Warier/nodivu/releases/tag/v0.2.0) usa Electron. Seus binários e feed permanecem os originais. Para trabalhar especificamente nessa referência, consulte [o guia legado](apps/nodivu-electron/README.md). `Build-Release.ps1` gera o pacote Qt; `Build-ElectronRelease.ps1` preserva o empacotamento anterior.
 
 ## Licença
 
