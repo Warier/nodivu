@@ -14,7 +14,9 @@ AudioStatusPanel::AudioStatusPanel(QWidget* parent) : QFrame(parent) {
         "QLabel#audioTitle { color: #f3d99a; font-size: 11px; font-weight: 600; background: "
         "transparent; }"
         "QFrame[ready=\"true\"] QLabel#audioTitle { color: #70d9bd; }"
-        "QLabel#audioDetail { color: #d1c8b5; font-size: 10px; background: transparent; }"
+        "QFrame#audioPanel[attention=\"true\"] { background: #29271f; border-color: #67563a; }"
+        "QFrame[attention=\"true\"] QLabel#audioTitle { color: #f3d99a; }"
+        "QLabel#audioDetail { color: #d1c8b5; font-size: 11px; background: transparent; }"
         "QPushButton { background: #70d9bd; color: #123a30; border: 1px solid #70d9bd; "
         "border-radius: 7px; "
         "padding: 7px 10px; font-size: 11px; font-weight: 600; }"
@@ -44,14 +46,16 @@ AudioStatusPanel::AudioStatusPanel(QWidget* parent) : QFrame(parent) {
     synchronize({QStringLiteral("Conectando…"), QStringLiteral("Preparando o motor de áudio.")});
 }
 void AudioStatusPanel::synchronize(const AudioState& state, const QString& blockedReason) {
-    if (property("ready").toBool() != state.ready || !property("ready").isValid()) {
+    if (property("ready").toBool() != state.ready ||
+        property("attention").toBool() != state.attention || !property("ready").isValid()) {
         setProperty("ready", state.ready);
+        setProperty("attention", state.attention);
         // Repolish descendants too, since title color depends on the ancestor state.
         setStyleSheet(styleSheet());
     }
     title_->setText(state.title);
     detail_->setText(state.message);
-    detail_->setVisible(!state.ready);
+    detail_->setVisible(!state.ready || state.attention);
     const auto hint =
         QStringLiteral("<qt>") + state.message.toHtmlEscaped() + QStringLiteral("</qt>");
     title_->setToolTip(hint);

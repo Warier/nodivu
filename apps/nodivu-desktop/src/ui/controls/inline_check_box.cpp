@@ -4,7 +4,7 @@
 
 namespace nodivu {
 InlineCheckBox::InlineCheckBox(const QString& text, QWidget* parent) : QCheckBox(text, parent) {
-    setStyleSheet(QStringLiteral("QCheckBox { color: #97a6bb; font-size: 9px; spacing: 6px; }"));
+    setStyleSheet(QStringLiteral("QCheckBox { color: #97a6bb; font-size: 11px; spacing: 6px; }"));
     setCursor(Qt::ArrowCursor);
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 }

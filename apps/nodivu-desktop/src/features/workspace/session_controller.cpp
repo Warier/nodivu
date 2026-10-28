@@ -204,30 +204,57 @@ void SessionController::addNode(const QString& kind, const QString& pluginId) {
     });
 }
 
-void SessionController::addInitialNodes() {
+void SessionController::addInitialNodes(const NodeDescriptor& source) {
+    if (!source.kind.isEmpty() && (source.inputs != 0 || source.outputs < 1)) {
+        emit error(QStringLiteral("O início rápido precisa de uma fonte de áudio."));
+        return;
+    }
     if (!settled() || !snapshot_.value(QStringLiteral("graph"))
                            .toObject()
                            .value(QStringLiteral("nodes"))
                            .toArray()
                            .isEmpty())
         return;
-    // The second insertion must use the revision returned by the first. Never
-    // choose devices or wire the blocks implicitly when starting an empty project.
-    command(QStringLiteral("node.add"),
-            {{QStringLiteral("kind"), QStringLiteral("capture")},
+    QJsonObject params{
+        {QStringLiteral("kind"), source.kind.isEmpty() ? QStringLiteral("capture") : source.kind},
+        {QStringLiteral("expected_revision"), snapshot_.value(QStringLiteral("revision"))}};
+    if (!source.pluginId.isEmpty())
+        params.insert(QStringLiteral("plugin_id"), source.pluginId);
+    // Explicit starter choice builds a connected template, with no endpoint chosen.
+    command(QStringLiteral("node.add"), params, [this](const BackendReply& first) {
+        if (!first.ok)
+            return;
+        const auto source = first.result.value(QStringLiteral("graph"))
+                                .toObject()
+                                .value(QStringLiteral("nodes"))
+                                .toArray()
+                                .first()
+                                .toObject()
+                                .value(QStringLiteral("id"))
+                                .toString();
+        emit documentEdited();
+        emit nodeAdded(source);
+        command(
+            QStringLiteral("node.add"),
+            {{QStringLiteral("kind"), QStringLiteral("output")},
              {QStringLiteral("expected_revision"), snapshot_.value(QStringLiteral("revision"))}},
-            [this](const BackendReply& reply) {
-                if (!reply.ok)
+            [this, source](const BackendReply& second) {
+                if (!second.ok)
                     return;
                 emit documentEdited();
-                const auto nodes = reply.result.value(QStringLiteral("graph"))
-                                       .toObject()
-                                       .value(QStringLiteral("nodes"))
-                                       .toArray();
-                if (!nodes.isEmpty())
-                    emit nodeAdded(nodes.first().toObject().value(QStringLiteral("id")).toString());
-                addNode(QStringLiteral("output"));
+                for (const auto& node : second.result.value(QStringLiteral("graph"))
+                                            .toObject()
+                                            .value(QStringLiteral("nodes"))
+                                            .toArray()) {
+                    const auto id = node.toObject().value(QStringLiteral("id")).toString();
+                    if (id != source) {
+                        emit nodeAdded(id);
+                        connectNodes(source, 0, id, 0);
+                        break;
+                    }
+                }
             });
+    });
 }
 
 void SessionController::removeNode(const QString& id) {

@@ -17,7 +17,7 @@ CaptureSourceWidget::CaptureSourceWidget(SessionController& session, QString nod
     setStyleSheet(
         QStringLiteral(
             "QLabel#captureOrigin { color: #97a6bb; font-size: %1px; background: transparent; }"
-            "QLabel#captureTiming { color: #8b95a7; font-size: 10px; background: transparent; }"
+            "QLabel#captureTiming { color: #8b95a7; font-size: 11px; background: transparent; }"
             "QComboBox { color: #dbe3ef; background: #121924; border: 1px solid #344257; "
             "border-radius: 7px; padding: 7px; font-size: %2px; }"
             "QComboBox:hover { border-color: #65748a; }"

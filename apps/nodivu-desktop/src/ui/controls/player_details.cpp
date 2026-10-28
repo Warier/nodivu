@@ -10,7 +10,7 @@ PlayerDetails::PlayerDetails(bool compact, bool transport, QWidget* parent)
     setObjectName(QStringLiteral("playerDetails"));
     setStyleSheet(QStringLiteral("QWidget#playerDetails { background: transparent; }"
                                  "QLabel#playerTime { color: #dbe3ef; font-size: %1px; }"
-                                 "QLabel#playerStatus { color: #c5cdd8; font-size: 10px; }")
+                                 "QLabel#playerStatus { color: #c5cdd8; font-size: 11px; }")
                       .arg(compact ? 10 : 12));
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

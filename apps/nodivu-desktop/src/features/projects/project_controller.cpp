@@ -8,13 +8,50 @@
 #include <QJsonDocument>
 #include <QLocale>
 #include <QtConcurrentRun>
+#include <algorithm>
 
 namespace nodivu {
+namespace {
+QJsonObject editDocument(QJsonObject document) {
+    document.remove(QStringLiteral("camera"));
+    auto positions = document.value(QStringLiteral("positions")).toArray();
+    QVector<QJsonObject> sorted;
+    for (const auto& value : positions)
+        sorted.append(value.toObject());
+    std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+        return a.value(QStringLiteral("node_id")).toString() <
+               b.value(QStringLiteral("node_id")).toString();
+    });
+    positions = {};
+    for (const auto& value : sorted)
+        positions.append(value);
+    document.insert(QStringLiteral("positions"), positions);
+    return document;
+}
+QJsonObject editKey(QJsonObject document) {
+    // File transport is transient. Keep references for restored nodes without
+    // turning playback/file discovery notifications into edit commands.
+    document.remove(QStringLiteral("resources"));
+    return document;
+}
+QJsonObject topology(const QJsonObject& document) {
+    auto graph = document.value(QStringLiteral("graph")).toObject();
+    QJsonArray ids;
+    for (const auto& node : graph.value(QStringLiteral("nodes")).toArray())
+        ids.append(node.toObject().value(QStringLiteral("id")));
+    graph.insert(QStringLiteral("nodes"), ids);
+    return graph;
+}
+} // namespace
+
 ProjectController::ProjectController(SessionController& session, GraphScene& scene, GraphView& view,
                                      AppPaths paths, QWidget* window)
     : QObject(window), session_(session), scene_(scene), view_(view), paths_(std::move(paths)),
       window_(window) {
     ioPool_.setMaxThreadCount(1);
+    historyTimer_.setSingleShot(true);
+    historyTimer_.setInterval(240);
+    connect(&historyTimer_, &QTimer::timeout, this, &ProjectController::commitHistory);
     const QFileInfo recovery(recoveryFile());
     recoveryPending_ = recovery.exists();
     recoverySavedAt_ = recovery.lastModified();
@@ -140,9 +177,11 @@ QJsonObject ProjectController::document() const {
         if (!file.isEmpty())
             resources.append(
                 QJsonObject{{QStringLiteral("node_id"), id}, {QStringLiteral("path"), file}});
-        auto capture = runtime.value(QStringLiteral("capture_selection")).toObject();
-        if (capture.isEmpty())
-            capture = captures_.value(id);
+        // A present null selection is an explicit clear, not a reason to restore
+        // an older persisted intent. Missing plugins still use the saved fallback.
+        const auto capture = runtime.contains(QStringLiteral("capture_selection"))
+                                 ? runtime.value(QStringLiteral("capture_selection")).toObject()
+                                 : captures_.value(id);
         if (!capture.isEmpty())
             captures.append(QJsonObject{{QStringLiteral("node_id"), id},
                                         {QStringLiteral("selection"), capture}});
@@ -164,8 +203,176 @@ void ProjectController::updateDirty() {
         return;
     if (savedStamp_.isEmpty())
         savedStamp_ = QJsonDocument(document()).toJson(QJsonDocument::Compact);
+    queueHistory();
     emit stateChanged();
 }
+bool ProjectController::canUndo() const {
+    return historyIndex_ > 0 || (!pendingHistory_.isEmpty() && historyIndex_ >= 0 &&
+                                 editKey(pendingHistory_) != editKey(history_[historyIndex_]));
+}
+bool ProjectController::canRedo() const {
+    return pendingHistory_.isEmpty() && historyIndex_ >= 0 && historyIndex_ + 1 < history_.size();
+}
+void ProjectController::resetHistory() {
+    historyTimer_.stop();
+    pendingHistory_ = {};
+    history_ = {editDocument(document())};
+    historyIndex_ = 0;
+}
+void ProjectController::queueHistory() {
+    if (historyApplying_ || restoring_ || busy() || resetHistoryAfterOpen_ || !session_.online())
+        return;
+    const auto next = editDocument(document());
+    if (historyIndex_ < 0) {
+        resetHistory();
+        return;
+    }
+    if (editKey(next) == editKey(history_[historyIndex_])) {
+        history_[historyIndex_] = next;
+        pendingHistory_ = {};
+        historyTimer_.stop();
+        return;
+    }
+    if (next == pendingHistory_)
+        return;
+    // Consecutive topology operations are distinct; drags and slider changes
+    // coalesce until idle, avoiding a history entry for every pixel/sample.
+    if (!pendingHistory_.isEmpty() && topology(next) != topology(pendingHistory_))
+        commitHistory();
+    pendingHistory_ = next;
+    historyTimer_.start();
+}
+void ProjectController::commitHistory() {
+    if (historyApplying_ || restoring_ || pendingHistory_.isEmpty())
+        return;
+    if (!session_.settled() || busy()) {
+        historyTimer_.start();
+        return;
+    }
+    historyTimer_.stop();
+    history_.resize(historyIndex_ + 1);
+    history_.append(pendingHistory_);
+    pendingHistory_ = {};
+    historyIndex_ = static_cast<int>(history_.size()) - 1;
+    qsizetype bytes = 0;
+    for (const auto& item : history_)
+        bytes += QJsonDocument(item).toJson(QJsonDocument::Compact).size();
+    // Bounded frontend-only snapshots; never retain PCM, live handles or telemetry.
+    while (history_.size() > 1 && (history_.size() > 100 || bytes > 8LL * 1024 * 1024)) {
+        bytes -= QJsonDocument(history_.first()).toJson(QJsonDocument::Compact).size();
+        history_.removeFirst();
+        --historyIndex_;
+    }
+    emit stateChanged();
+}
+void ProjectController::undo() {
+    if (busy() || !session_.settled() || historyApplying_)
+        return;
+    commitHistory();
+    if (historyIndex_ > 0)
+        restoreHistory(historyIndex_ - 1);
+}
+void ProjectController::redo() {
+    if (busy() || !session_.settled() || historyApplying_)
+        return;
+    commitHistory();
+    if (canRedo())
+        restoreHistory(historyIndex_ + 1);
+}
+void ProjectController::restoreHistory(int index) {
+    const auto target = history_[index];
+    const auto before = document();
+    QJsonArray commands;
+    for (const auto& entry : target.value(QStringLiteral("resources")).toArray()) {
+        const auto resource = entry.toObject();
+        const auto id = resource.value(QStringLiteral("node_id")).toString();
+        QJsonObject targetNode;
+        for (const auto& value : target.value(QStringLiteral("graph"))
+                                     .toObject()
+                                     .value(QStringLiteral("nodes"))
+                                     .toArray())
+            if (value.toObject().value(QStringLiteral("id")) == id)
+                targetNode = value.toObject();
+        const auto descriptor = session_.catalog().describe(targetNode);
+        if (session_.node(id).isEmpty() && descriptor.filePlayer && !descriptor.missing)
+            commands.append(QJsonObject{
+                {QStringLiteral("method"), QStringLiteral("plugin.command")},
+                {QStringLiteral("params"),
+                 QJsonObject{{QStringLiteral("node_id"), id},
+                             {QStringLiteral("action"), QStringLiteral("load")},
+                             {QStringLiteral("path"), resource.value(QStringLiteral("path"))}}}});
+    }
+    const auto targetCaptures = target.value(QStringLiteral("captures")).toArray();
+    const auto beforeCaptures = before.value(QStringLiteral("captures")).toArray();
+    for (const auto& node : target.value(QStringLiteral("graph"))
+                                .toObject()
+                                .value(QStringLiteral("nodes"))
+                                .toArray()) {
+        const auto id = node.toObject().value(QStringLiteral("id")).toString();
+        QJsonObject selection, previous;
+        for (const auto& entry : targetCaptures)
+            if (entry.toObject().value(QStringLiteral("node_id")) == id)
+                selection = entry.toObject().value(QStringLiteral("selection")).toObject();
+        for (const auto& entry : beforeCaptures)
+            if (entry.toObject().value(QStringLiteral("node_id")) == id)
+                previous = entry.toObject().value(QStringLiteral("selection")).toObject();
+        if (selection != previous && session_.catalog().describe(node.toObject()).captureSource)
+            commands.append(
+                QJsonObject{{QStringLiteral("method"), QStringLiteral("capture.configure")},
+                            {QStringLiteral("params"),
+                             QJsonObject{{QStringLiteral("node_id"), id},
+                                         {QStringLiteral("selection"),
+                                          selection.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                                              : QJsonValue(selection)}}}});
+    }
+    historyApplying_ = true;
+    restoring_ = true;
+    operation_ = true;
+    emit stateChanged();
+    const auto applied = [this, target, commands, index](const BackendReply& reply) {
+        if (!reply.ok) {
+            historyApplying_ = restoring_ = operation_ = false;
+            emit stateChanged();
+            return;
+        }
+        for (const auto& entry : target.value(QStringLiteral("resources")).toArray())
+            resources_.insert(entry.toObject().value(QStringLiteral("node_id")).toString(),
+                              entry.toObject().value(QStringLiteral("path")).toString());
+        captures_.clear();
+        for (const auto& entry : target.value(QStringLiteral("captures")).toArray())
+            captures_.insert(entry.toObject().value(QStringLiteral("node_id")).toString(),
+                             entry.toObject().value(QStringLiteral("selection")).toObject());
+        scene_.restorePositions(target.value(QStringLiteral("positions")).toArray());
+        restoreHistoryResources(index, commands, 0);
+    };
+    if (before.value(QStringLiteral("graph")) == target.value(QStringLiteral("graph"))) {
+        BackendReply reply;
+        reply.ok = true;
+        applied(reply);
+    } else
+        session_.command(QStringLiteral("graph.apply"),
+                         {{QStringLiteral("expected_revision"),
+                           session_.snapshot().value(QStringLiteral("revision"))},
+                          {QStringLiteral("graph"), target.value(QStringLiteral("graph"))}},
+                         applied);
+}
+void ProjectController::restoreHistoryResources(int historyIndex, QJsonArray commands,
+                                                qsizetype index) {
+    if (index >= commands.size()) {
+        historyIndex_ = historyIndex;
+        history_[historyIndex_] = editDocument(document());
+        historyApplying_ = restoring_ = operation_ = false;
+        emit stateChanged();
+        return;
+    }
+    const auto command = commands[index].toObject();
+    session_.command(command.value(QStringLiteral("method")).toString(),
+                     command.value(QStringLiteral("params")).toObject(),
+                     [this, commands, index, historyIndex](const BackendReply&) {
+                         restoreHistoryResources(historyIndex, commands, index + 1);
+                     });
+}
+
 bool ProjectController::confirmDiscard(PendingChangesAction action) {
     return !dirty() || confirmPendingChanges(window_, action);
 }
@@ -213,7 +420,8 @@ void ProjectController::save(const QString& requestedFile) {
         emit error(QStringLiteral("Aguarde a aplicação dos ajustes antes de salvar."));
         return;
     }
-    QString file = requestedFile;
+    commitHistory();
+    QString file = requestedFile.isEmpty() ? path_ : requestedFile;
     if (file.isEmpty())
         file = QFileDialog::getSaveFileName(
             window_, QStringLiteral("Salvar projeto"),
@@ -243,6 +451,7 @@ void ProjectController::save(const QString& requestedFile) {
                                     return;
                                 }
                                 path_ = file;
+                                savedAt_ = result.writtenAt;
                                 savedStamp_ = contents;
                                 if (!dirty() && !recoveryPending_) {
                                     const auto removed =
@@ -256,6 +465,18 @@ void ProjectController::save(const QString& requestedFile) {
                             });
                      });
 }
+void ProjectController::saveAs() {
+    if (busy() || !session_.settled())
+        return;
+    const auto file = QFileDialog::getSaveFileName(
+        window_, QStringLiteral("Salvar projeto como"),
+        path_.isEmpty() ? QDir(paths_.projects).filePath(QStringLiteral("Projeto.nodivu.json"))
+                        : path_,
+        QStringLiteral("Projeto Nodivu (*.nodivu.json)"));
+    if (!file.isEmpty())
+        save(file);
+}
+
 void ProjectController::open(const QString& requestedFile) {
     if (busy() || !session_.settled() || !confirmDiscard(PendingChangesAction::Open))
         return;
@@ -304,6 +525,9 @@ void ProjectController::openContents(const QByteArray& contents, const QString& 
                         return;
                     }
                     restoring_ = true;
+                    resetHistoryAfterOpen_ = true;
+                    historyTimer_.stop();
+                    pendingHistory_ = {};
                     resources_.clear();
                     captures_.clear();
                     for (const auto& value : project.value(QStringLiteral("resources")).toArray())
@@ -319,6 +543,7 @@ void ProjectController::openContents(const QByteArray& contents, const QString& 
                     scene_.restorePositions(project.value(QStringLiteral("positions")).toArray());
                     view_.restoreCamera(project.value(QStringLiteral("camera")).toObject());
                     path_ = recovery ? QString() : file;
+                    savedAt_ = recovery ? QDateTime() : QFileInfo(file).lastModified();
                     if (recovery)
                         recoveryPending_ = false;
                     recoveryStamp_.clear();
@@ -389,6 +614,10 @@ void ProjectController::retryPreparedAudio() {
 void ProjectController::prepareResources(QJsonArray resources, qsizetype index) {
     if (index >= resources.size()) {
         operation_ = false;
+        if (resetHistoryAfterOpen_) {
+            resetHistoryAfterOpen_ = false;
+            resetHistory();
+        }
         emit stateChanged();
         return;
     }

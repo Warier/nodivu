@@ -111,24 +111,12 @@ class WorkspaceTests final : public QObject {
         QTRY_VERIFY(session.settled() && projects->dirty());
         window.activateWindow();
         window.setFocus();
-        // Saving intentionally keeps the existing file picker. Verify one shortcut
-        // invocation, cancel the picker, then save to the explicit fixture path.
+        // Ctrl+S writes the existing file without opening another picker.
         QSignalSpy saves(&window, &nodivu::MainWindow::saveRequested);
-        const bool nativeDialogsDisabled = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
-        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
-        bool pickerCancelled = false;
-        QTimer::singleShot(0, &window, [&] {
-            if (auto* picker = window.findChild<QFileDialog*>()) {
-                picker->reject();
-                pickerCancelled = true;
-            }
-        });
         QTest::keyClick(&window, Qt::Key_S, Qt::ControlModifier);
-        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, nativeDialogsDisabled);
         QCOMPARE(saves.count(), 1);
-        QVERIFY(pickerCancelled && projects->dirty());
-        projects->save(first);
         QTRY_VERIFY(!projects->busy() && !projects->dirty());
+        QVERIFY(!window.findChild<QFileDialog*>());
         session.addNode(QStringLiteral("meter"));
         QTRY_VERIFY(session.settled() && nodes().size() == 2);
         projects->save(second);
@@ -407,8 +395,11 @@ class WorkspaceTests final : public QObject {
         auto* title = window.findChild<QLabel*>(QStringLiteral("audioTitle"));
         auto* revision = window.findChild<QLabel*>(QStringLiteral("projectRevision"));
         QVERIFY(panel && action && title && revision);
-        QTRY_VERIFY_WITH_TIMEOUT(
-            session.settled() && !session.devicesRefreshing() && action->isEnabled(), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(session.settled() && !session.devicesRefreshing(), 10000);
+        QCOMPARE(title->text(), QStringLiteral("Comece pelo seu áudio"));
+        QVERIFY(!action->isVisible());
+        session.addNode(QStringLiteral("gain"));
+        QTRY_VERIFY(session.settled());
         QCOMPARE(title->text(), QStringLiteral("Escolha uma saída"));
         QCOMPARE(action->text(), QStringLiteral("Selecionar saída"));
         QTest::mouseClick(action, Qt::LeftButton);
@@ -418,15 +409,20 @@ class WorkspaceTests final : public QObject {
                                       .value(QStringLiteral("nodes"))
                                       .toArray()
                                       .size(),
-                                  1, 5000);
+                                  2, 5000);
         QTRY_VERIFY(session.settled() && action->isEnabled());
-        const auto node = session.snapshot()
-                              .value(QStringLiteral("graph"))
-                              .toObject()
-                              .value(QStringLiteral("nodes"))
-                              .toArray()
-                              .first()
-                              .toObject();
+        QJsonObject node;
+        for (const auto& value : session.snapshot()
+                                     .value(QStringLiteral("graph"))
+                                     .toObject()
+                                     .value(QStringLiteral("nodes"))
+                                     .toArray())
+            if (value.toObject()
+                    .value(QStringLiteral("block"))
+                    .toObject()
+                    .value(QStringLiteral("kind"))
+                    .toString() == QStringLiteral("output"))
+                node = value.toObject();
         QCOMPARE(
             node.value(QStringLiteral("block")).toObject().value(QStringLiteral("kind")).toString(),
             QStringLiteral("output"));
@@ -446,7 +442,7 @@ class WorkspaceTests final : public QObject {
                      .value(QStringLiteral("nodes"))
                      .toArray()
                      .size(),
-                 1);
+                 2);
         auto* footer = window.findChild<QFrame*>(QStringLiteral("projectFooter"));
         QVERIFY(footer && footer->isVisible());
         QVERIFY(footer->height() >= 26);
@@ -460,6 +456,13 @@ class WorkspaceTests final : public QObject {
         // audio.
         QJsonObject snapshot;
         QCOMPARE(nodivu::audioState(snapshot, {}, false).action, nodivu::AudioAction::Reconnect);
+        QCOMPARE(nodivu::audioState(snapshot, {}, true).action, nodivu::AudioAction::None);
+        snapshot.insert(
+            QStringLiteral("graph"),
+            QJsonObject{{QStringLiteral("nodes"),
+                         QJsonArray{QJsonObject{
+                             {QStringLiteral("block"),
+                              QJsonObject{{QStringLiteral("kind"), QStringLiteral("output")}}}}}}});
         QCOMPARE(nodivu::audioState(snapshot, {}, true).action, nodivu::AudioAction::Output);
         snapshot.insert(
             QStringLiteral("graph"),
@@ -595,6 +598,7 @@ class WorkspaceTests final : public QObject {
         QVERIFY(capture(QStringLiteral("system-listen.png")));
         scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
         QTest::qWait(30);
+        panel->openApplication();
         QVERIFY(capture(QStringLiteral("system-bottom.png")));
         auto* update = button("updateAction");
         QVERIFY(update && !update->isEnabled());
@@ -696,7 +700,7 @@ class WorkspaceTests final : public QObject {
         QVERIFY(
             projects->recoveryStatus().contains(projects->recoverySavedAt().toLocalTime().toString(
                 QStringLiteral("dd/MM/yyyy HH:mm:ss"))));
-        panel->show();
+        panel->openProject();
         auto* button =
             panel->findChild<QPushButton*>(restore ? QStringLiteral("systemRecoveryRestore")
                                                    : QStringLiteral("systemRecoveryDiscard"));
@@ -1715,7 +1719,7 @@ class WorkspaceTests final : public QObject {
         }
         QVERIFY(kinds.contains(QStringLiteral("capture")) &&
                 kinds.contains(QStringLiteral("output")));
-        QVERIFY(graph().value(QStringLiteral("edges")).toArray().isEmpty());
+        QTRY_COMPARE(graph().value(QStringLiteral("edges")).toArray().size(), 1);
         view->fitNodes();
         QCOMPARE(reset->text(),
                  QString::number(qRound(view->transform().m11() * 100)) + QLatin1Char('%'));

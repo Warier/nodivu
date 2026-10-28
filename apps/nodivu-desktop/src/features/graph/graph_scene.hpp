@@ -21,6 +21,7 @@ class NodeItem final : public QGraphicsObject {
     void setPlayback(const PlaybackState& state);
     void synchronizeControls(const QJsonArray& devices, bool enabled, const QJsonObject& runtime);
     void focusPrimaryControl();
+    void setSignalStatus(const QString& text);
     bool needsInspector() const {
         return descriptor_.needsInspector();
     }
@@ -65,6 +66,7 @@ class GraphScene final : public QGraphicsScene {
     Q_OBJECT
   public:
     explicit GraphScene(SessionController& session, QObject* parent = nullptr);
+    ~GraphScene() override;
     QJsonArray positions() const;
     void restorePositions(const QJsonArray& positions);
     void organize();
@@ -77,6 +79,7 @@ class GraphScene final : public QGraphicsScene {
   signals:
     void inspectRequested(const QString& id);
     void positionsEdited();
+    void addAtRequested(const QString& kind, const QString& pluginId, const QPointF& position);
     void nodeActionRequested(const QString& id, const QString& action, const QPoint& position);
 
   protected:

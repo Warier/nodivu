@@ -4,6 +4,8 @@
 #include "ui/controls/inline_check_box.hpp"
 #include "ui/controls/player_details.hpp"
 #include "ui/controls/worker_controls.hpp"
+#include "ui/theme/studio_icons.hpp"
+#include "ui/theme/theme.hpp"
 #include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QEvent>
@@ -26,17 +28,17 @@ NodeContent::NodeContent(const QString& nodeId, const NodeDescriptor& descriptor
     setStyleSheet(
         QStringLiteral(
             "QWidget#nodeContent { background: transparent; }"
-            "QLabel { color: #95a1b2; background: transparent; font-size: 9px; }"
-            "QLabel#nodeLevel { font-size: 8px; }"
+            "QLabel { color: #95a1b2; background: transparent; font-size: %3px; }"
+            "QLabel#nodeLevel { font-size: %3px; }"
             "QComboBox, QDoubleSpinBox { color: #dbe3ef; background: #121924; "
-            "border: 1px solid #344257; border-radius: 7px; padding: 7px; font-size: 10px; }"
+            "border: 1px solid #344257; border-radius: 7px; padding: 7px; font-size: %3px; }"
             "QComboBox:hover, QDoubleSpinBox:hover { border-color: #65748a; }"
             "QComboBox:focus, QDoubleSpinBox:focus { border-color: #83ddc5; }"
             "QComboBox:disabled { color: #758193; }"
             "QComboBox QAbstractItemView { background: #121924; color: #dbe3ef; "
-            "selection-background-color: #243e39; selection-color: #dbe3ef; font-size: 10px; }"
-            "QCheckBox { color: #97a6bb; font-size: 9px; spacing: 6px; }"
-            "QPushButton { font-size: 10px; padding: 6px; border: 1px solid #384353; "
+            "selection-background-color: #243e39; selection-color: #dbe3ef; font-size: %3px; }"
+            "QCheckBox { color: #97a6bb; font-size: %3px; spacing: 6px; }"
+            "QPushButton { font-size: %3px; padding: 6px; border: 1px solid #384353; "
             "border-radius: 7px; color: #dbe3ef; background: #262e3b; }"
             "QPushButton:enabled:hover { background: #354153; border-color: #65748a; }"
             "QPushButton:disabled { color: #626b78; background: #202733; border-color: #2b3543; }"
@@ -49,7 +51,8 @@ NodeContent::NodeContent(const QString& nodeId, const NodeDescriptor& descriptor
             .arg(descriptor.kind == QStringLiteral("output") ? QStringLiteral("#b296fa")
                                                              : QStringLiteral("#70d9bd"),
                  descriptor.kind == QStringLiteral("plugin") ? descriptor.accent.name()
-                                                             : QStringLiteral("#70d9bd")));
+                                                             : QStringLiteral("#70d9bd"),
+                 QString::number(Theme::DetailFont)));
     layout_ = new QVBoxLayout(this);
     layout_->setContentsMargins(0, 0, 0, 0);
     layout_->setSpacing(0);
@@ -77,7 +80,8 @@ NodeContent::NodeContent(const QString& nodeId, const NodeDescriptor& descriptor
         choose_ = button(QStringLiteral("Escolher áudio"), QStringLiteral("file"));
         choose_->installEventFilter(this);
         reload_ = button(QStringLiteral("Carregar áudio salvo"), QStringLiteral("reload"));
-        play_ = button(QStringLiteral("▶ Reproduzir"), QStringLiteral("play"));
+        play_ = button(QStringLiteral("Reproduzir"), QStringLiteral("play"));
+        play_->setIcon(studioIcon(StudioIcon::Play));
         play_->setEnabled(false);
         playerDetails_ = new PlayerDetails(true, descriptor.fileTransport, this);
         connect(playerDetails_, &PlayerDetails::geometryChanged, this,
@@ -119,9 +123,9 @@ NodeContent::NodeContent(const QString& nodeId, const NodeDescriptor& descriptor
     layout_->addSpacing(4);
     level_ = new QLabel(QStringLiteral("Silêncio"), this);
     level_->setObjectName(QStringLiteral("nodeLevel"));
-    level_->setFixedHeight(10);
+    level_->setFixedHeight(17);
     layout_->addWidget(level_);
-    setFixedWidth(194);
+    setFixedWidth(Theme::NodeWidth - 24);
     resizeToContents();
     // Focus in transport controls and nested spinbox editors also selects the
     // owning card, so scene shortcuts cannot affect a previously selected node.
@@ -159,7 +163,7 @@ void NodeContent::mountControl(const ControlDescriptor& control) {
         if (control.kind == ControlKind::Slider || control.kind == ControlKind::Number) {
             field.value = new QLabel(group);
             field.value->setObjectName(control.key + QStringLiteral(":value"));
-            field.value->setStyleSheet(QStringLiteral("color: %1; font-size: 9px;")
+            field.value->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;")
                                            .arg(descriptor_.kind == QStringLiteral("plugin")
                                                     ? descriptor_.accent.name()
                                                     : QStringLiteral("#70d9bd")));
@@ -281,8 +285,9 @@ void NodeContent::setPlayback(const PlaybackState& state, bool enabled) {
     reload_->setVisible(state.needsLoad);
     reload_->setEnabled(enabled);
     play_->setEnabled(enabled && (state.canPlay || (state.playing && descriptor_.fileTransport)));
-    play_->setText(state.playing && descriptor_.fileTransport ? QStringLiteral("Ⅱ Pausar")
-                                                              : QStringLiteral("▶ Reproduzir"));
+    play_->setIcon(studioIcon(state.playing ? StudioIcon::Pause : StudioIcon::Play));
+    play_->setText(state.playing && descriptor_.fileTransport ? QStringLiteral("Pausar")
+                                                              : QStringLiteral("Reproduzir"));
     play_->setToolTip(state.reason);
     playerDetails_->synchronize(state, !seek_ || !seek_->isSliderDown());
     if (seek_) {
@@ -309,6 +314,12 @@ void NodeContent::addCaptureWidget(QWidget* widget) {
         child->installEventFilter(this);
     setFocusProxy(widget);
     resizeToContents();
+}
+void NodeContent::setSignalStatus(const QString& text) {
+    level_->setText(text);
+    level_->setToolTip(text +
+                       QStringLiteral(". Medição de software; confirme a recepção no destino."));
+    level_->setAccessibleName(text);
 }
 void NodeContent::resizeToContents() {
     layout_->invalidate();

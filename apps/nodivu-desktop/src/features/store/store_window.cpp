@@ -1,7 +1,10 @@
 #include "features/store/store_window.hpp"
 #include "features/store/readme_view.hpp"
 #include "ui/controls/action_availability.hpp"
+#include "ui/controls/message_presentation.hpp"
+#include "ui/theme/studio_icons.hpp"
 #include "ui/theme/studio_panel_style.hpp"
+#include "ui/theme/theme.hpp"
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -9,6 +12,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QProgressBar>
@@ -16,6 +20,7 @@
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTabBar>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QVersionNumber>
@@ -48,8 +53,30 @@ StoreWindow::StoreWindow(StoreController& controller, QWidget* parent)
     auto* zip = new QPushButton(QStringLiteral("Adicionar arquivo…"), this);
     auto* refresh = new QPushButton(QStringLiteral("Atualizar lista"), this);
     auto* clean = new QPushButton(QStringLiteral("Limpar downloads"), this);
-    for (auto* button : {folder, zip, refresh, clean})
-        toolbar->addWidget(button);
+    for (auto* button : {folder, zip, clean})
+        button->hide();
+    auto* install = new QToolButton(this);
+    install->setObjectName(QStringLiteral("pluginImportMenu"));
+    install->setText(QStringLiteral("Instalar pacote"));
+    install->setIcon(studioIcon(StudioIcon::Plus));
+    install->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    install->setPopupMode(QToolButton::InstantPopup);
+    auto* imports = new QMenu(install);
+    for (auto* button : {zip, folder}) {
+        auto* option = imports->addAction(button->text());
+        connect(option, &QAction::triggered, button, &QPushButton::click);
+    }
+    install->setMenu(imports);
+    toolbar->addWidget(install);
+    toolbar->addWidget(refresh);
+    auto* utilities = new QToolButton(this);
+    utilities->setText(QStringLiteral("Opções"));
+    utilities->setPopupMode(QToolButton::InstantPopup);
+    auto* utilityMenu = new QMenu(utilities);
+    auto* cleanAction = utilityMenu->addAction(clean->text());
+    connect(cleanAction, &QAction::triggered, clean, &QPushButton::click);
+    utilities->setMenu(utilityMenu);
+    toolbar->addWidget(utilities);
     toolbar->addStretch();
     count_ = new QLabel(this);
     count_->setObjectName(QStringLiteral("pluginsCount"));
@@ -59,6 +86,16 @@ StoreWindow::StoreWindow(StoreController& controller, QWidget* parent)
     message_->setTextFormat(Qt::PlainText);
     message_->setWordWrap(true);
     layout->addWidget(message_);
+    errorDetails_ = new QToolButton(this);
+    errorDetails_->setText(QStringLiteral("Detalhes do diagnóstico"));
+    errorDetails_->setObjectName(QStringLiteral("pluginErrorDetails"));
+    layout->addWidget(errorDetails_, 0, Qt::AlignLeft);
+    connect(errorDetails_, &QToolButton::clicked, this, [this] {
+        QMessageBox dialog(QMessageBox::Warning, QStringLiteral("Detalhes do diagnóstico"),
+                           friendlyError(controller_.state().error), QMessageBox::Ok, this);
+        dialog.setDetailedText(controller_.state().error);
+        dialog.exec();
+    });
     auto* splitter = new QSplitter(Qt::Horizontal, this);
     list_ = new QTreeWidget(splitter);
     list_->setAccessibleName(QStringLiteral("Plugins disponíveis e instalados"));
@@ -70,7 +107,8 @@ StoreWindow::StoreWindow(StoreController& controller, QWidget* parent)
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     readme_ = new ReadmeView(splitter);
     readme_->setAccessibleName(QStringLiteral("Documentação do plugin"));
-    readme_->setPlaceholderText(QStringLiteral("Selecione um plugin e abra sua documentação."));
+    readme_->setPlaceholderText(
+        QStringLiteral("Selecione um plugin e use Documentação para consultar seus detalhes."));
     splitter->addWidget(list_);
     splitter->addWidget(readme_);
     splitter->setSizes({550, 450});
@@ -93,8 +131,26 @@ StoreWindow::StoreWindow(StoreController& controller, QWidget* parent)
     remove_->setObjectName(QStringLiteral("pluginRemove"));
     rollback_->setObjectName(QStringLiteral("pluginRollback"));
     cancelUpdate_->setObjectName(QStringLiteral("pluginCancelUpdate"));
-    for (auto* button : {action_, details_, enable_, remove_, rollback_, cancelUpdate_})
-        actions->addWidget(button);
+    action_->setProperty("role", QStringLiteral("primary"));
+    actions->addWidget(action_);
+    actions->addWidget(details_);
+    for (auto* button : {enable_, remove_, rollback_, cancelUpdate_})
+        button->hide();
+    more_ = new QToolButton(this);
+    more_->setObjectName(QStringLiteral("pluginMoreActions"));
+    more_->setText(QStringLiteral("Mais opções"));
+    more_->setIcon(studioIcon(StudioIcon::More));
+    more_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    more_->setPopupMode(QToolButton::InstantPopup);
+    auto* secondaryMenu = new QMenu(more_);
+    for (auto* button : {remove_, rollback_, cancelUpdate_}) {
+        auto* option = secondaryMenu->addAction(button->text());
+        secondary_.append({option, button});
+        connect(option, &QAction::triggered, button, &QPushButton::click);
+    }
+    more_->setMenu(secondaryMenu);
+    actions->addStretch();
+    actions->addWidget(more_);
     layout->addLayout(actions);
     progress_ = new QProgressBar(this);
     progress_->setAccessibleName(QStringLiteral("Progresso da operação"));
@@ -216,10 +272,11 @@ void StoreWindow::render() {
     const bool local = tabs_->currentIndex() == 0;
     const bool updates = tabs_->currentIndex() == 2;
     for (auto* button : {enable_, remove_, rollback_, cancelUpdate_})
-        button->setVisible(local);
+        button->hide();
+    more_->setVisible(local);
     action_->setText(local ? QStringLiteral("Documentação")
                            : QStringLiteral("Instalar / atualizar"));
-    details_->setVisible(!local);
+    details_->setVisible(true);
     if (local) {
         for (const auto& package : state.installed) {
             if (!query.isEmpty() &&
@@ -249,6 +306,12 @@ void StoreWindow::render() {
             auto* item =
                 new QTreeWidgetItem(list_, {package.title + QLatin1Char('\n') + package.author,
                                             package.version, labels.join(QLatin1Char('\n'))});
+            item->setIcon(0, studioIcon(status.pending                    ? StudioIcon::Warning
+                                        : package.enabled && package.ok() ? StudioIcon::Check
+                                                                          : StudioIcon::Plugin,
+                                        status.pending                    ? QColor(240, 212, 155)
+                                        : package.enabled && package.ok() ? QColor(112, 217, 189)
+                                                                          : QColor(170, 182, 199)));
             item->setData(0, Qt::UserRole, package.key);
             item->setData(0, Qt::UserRole + 1, package.enabled);
             item->setData(0, Qt::UserRole + 2, package.removed);
@@ -290,12 +353,18 @@ void StoreWindow::render() {
         }
     }
     message_->setText(
-        !state.error.isEmpty()     ? state.error
+        !state.error.isEmpty()     ? friendlyError(state.error)
         : controller_.busy()       ? QStringLiteral("Operação em andamento…")
         : !state.message.isEmpty() ? state.message
         : state.online
             ? QStringLiteral("Catálogo autenticado")
             : QStringLiteral("Consulta local/offline · atualize para instalar pela loja"));
+    errorDetails_->setVisible(!state.error.isEmpty());
+    message_->setStyleSheet(
+        QStringLiteral("color: %1;")
+            .arg(state.error.isEmpty() ? Theme::muted().name() : Theme::warningText().name()));
+    message_->setProperty("role", state.error.isEmpty() ? QStringLiteral("info")
+                                                        : QStringLiteral("warning"));
     if (!state.warnings.isEmpty())
         message_->setText(message_->text() + QLatin1Char('\n') +
                           state.warnings.join(QLatin1Char('\n')));
@@ -324,6 +393,8 @@ void StoreWindow::updateSelection() {
     for (auto* button : {action_, details_, enable_, remove_, rollback_, cancelUpdate_})
         setActionAvailability(button, button->text(), blocked);
     selectionInfo_->clear();
+    if (local && selected.isEmpty())
+        action_->setText(QStringLiteral("Selecione um plugin"));
     if (!local) {
         for (const auto& value : state.catalog) {
             const auto entry = value.toObject();
@@ -335,6 +406,7 @@ void StoreWindow::updateSelection() {
                                   blocked.isEmpty() ? presentation.reason : blocked);
             selectionInfo_->setText(presentation.detail);
         }
+        synchronizeSecondaryActions();
         return;
     }
     for (const auto& package : state.installed) {
@@ -377,7 +449,19 @@ void StoreWindow::updateSelection() {
                                   ? QStringLiteral("Não há atualização pendente.")
                                   : QString());
         selectionInfo_->setText(selected.first()->text(2));
+        action_->setText(enable_->text());
+        setActionAvailability(action_, action_->text(),
+                              enable_->isEnabled() ? QString() : enable_->statusTip());
     }
+    synchronizeSecondaryActions();
+}
+void StoreWindow::synchronizeSecondaryActions() {
+    for (const auto& pair : secondary_) {
+        pair.first->setText(pair.second->text());
+        pair.first->setEnabled(pair.second->isEnabled());
+        pair.first->setToolTip(pair.second->toolTip());
+    }
+    more_->setEnabled(!list_->selectedItems().isEmpty() && !controller_.busy());
 }
 void StoreWindow::renderProgress() {
     progress_->setVisible(controller_.busy());
@@ -401,7 +485,7 @@ void StoreWindow::selectedAction() {
         return;
     auto* item = list_->selectedItems().first();
     if (tabs_->currentIndex() == 0) {
-        controller_.details(item->data(0, Qt::UserRole).toString(), true);
+        enable_->click();
     } else if (QMessageBox::question(
                    this, QStringLiteral("Confiar no publicador"),
                    QStringLiteral(

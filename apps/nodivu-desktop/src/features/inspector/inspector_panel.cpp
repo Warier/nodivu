@@ -7,6 +7,7 @@
 #include "ui/controls/inline_check_box.hpp"
 #include "ui/controls/player_details.hpp"
 #include "ui/controls/worker_controls.hpp"
+#include "ui/theme/studio_icons.hpp"
 #include "ui/theme/theme.hpp"
 
 #include <QApplication>
@@ -97,7 +98,7 @@ InspectorPanel::InspectorPanel(SessionController& session, QWidget* parent)
         "QFrame#inspectorHandle QPushButton[headerAction=\"true\"]:hover { "
         "background: #354153; border-color: #65748a; }"
         "QLabel { font-size: 11px; color: #c2cddb; }"
-        "QGroupBox { font-size: 10px; color: #aab9cd; border-color: #384754; }"
+        "QGroupBox { font-size: 11px; color: #aab9cd; border-color: #384754; }"
         "QComboBox { background: #121924; border: 1px solid #344257; border-radius: 7px; "
         "padding: 7px; color: #dbe3ef; font-size: 11px; }"
         "QComboBox:hover, QDoubleSpinBox:hover { border-color: #65748a; }"
@@ -108,7 +109,7 @@ InspectorPanel::InspectorPanel(SessionController& session, QWidget* parent)
         "border-radius: 5px; font-size: 11px; padding: 7px; }"
         "QTabWidget::pane { border: 0; background: #202a35; }"
         "QTabBar::tab { color: #dbe3ef; background: #262e3b; border: 1px solid #384353; "
-        "border-radius: 5px; margin-right: 5px; padding: 6px 9px; font-size: 10px; }"
+        "border-radius: 5px; margin-right: 5px; padding: 6px 9px; font-size: 11px; }"
         "QTabBar::tab:selected { color: #70d9bd; background: #243e39; border-color: #70d9bd; }"
         "QTabBar::tab:hover { border-color: #65748a; }"
         "QPushButton[playerAction=\"true\"] { font-size: 11px; padding: 8px; "
@@ -127,7 +128,8 @@ InspectorPanel::InspectorPanel(SessionController& session, QWidget* parent)
     auto* header = new QHBoxLayout(handle_);
     header->setContentsMargins(10, 11, 10, 11);
     header->setSpacing(7);
-    auto* grip = new QLabel(QStringLiteral("⠿"), handle_);
+    auto* grip = new QLabel(handle_);
+    grip->setPixmap(studioIcon(StudioIcon::Grip).pixmap(16, 20));
     grip->setObjectName(QStringLiteral("inspectorMoveHint"));
     grip->setStyleSheet(QStringLiteral("color: #7a899c; font-size: 15px;"));
     grip->setCursor(Qt::ArrowCursor);
@@ -144,20 +146,23 @@ InspectorPanel::InspectorPanel(SessionController& session, QWidget* parent)
     heading->addWidget(title_);
     subtitle_ = new QLabel(handle_);
     subtitle_->setTextFormat(Qt::PlainText);
-    subtitle_->setStyleSheet(QStringLiteral("font-size: 9px; color: #95a1b2;"));
+    subtitle_->setStyleSheet(QStringLiteral("font-size: 11px; color: #95a1b2;"));
     subtitle_->setAttribute(Qt::WA_TransparentForMouseEvents);
     heading->addWidget(subtitle_);
     header->addLayout(heading, 1);
-    auto* home = new QPushButton(QStringLiteral("⌖"), handle_);
-    auto* collapse = new QPushButton(QStringLiteral("−"), handle_);
-    auto* close = new QPushButton(QStringLiteral("×"), handle_);
+    auto* home = new QPushButton(handle_);
+    home->setIcon(studioIcon(StudioIcon::Target));
+    auto* collapse = new QPushButton(handle_);
+    collapse->setIcon(studioIcon(StudioIcon::Minus));
+    auto* close = new QPushButton(handle_);
+    close->setIcon(studioIcon(StudioIcon::Close));
     home->setObjectName(QStringLiteral("inspectorHome"));
     collapse->setObjectName(QStringLiteral("inspectorCollapse"));
     close->setObjectName(QStringLiteral("inspectorClose"));
     collapse->setProperty("headerAction", true);
     close->setProperty("headerAction", true);
     for (auto* button : {home, collapse, close}) {
-        button->setFixedSize(19, 24);
+        button->setFixedSize(Theme::ControlTarget, 32);
         button->setCursor(Qt::ArrowCursor);
         header->addWidget(button);
     }
@@ -393,7 +398,7 @@ void InspectorPanel::rebuild() {
     description->setTextFormat(Qt::PlainText);
     description->setObjectName(QStringLiteral("blockNote"));
     description->setStyleSheet(QStringLiteral(
-        "font-size: 10px; color: #8b95a7; border-top: 1px solid #29303c; padding-top: 12px;"));
+        "font-size: 11px; color: #8b95a7; border-top: 1px solid #29303c; padding-top: 12px;"));
     layout->addWidget(description);
     layout->addStretch();
 }
@@ -411,7 +416,7 @@ void InspectorPanel::mountControl(QVBoxLayout* layout, const ControlDescriptor& 
             line->addWidget(label, 1);
             auto* value = new QLabel(content_);
             value->setObjectName(control.key + QStringLiteral(":value"));
-            value->setStyleSheet(QStringLiteral("font-size: 10px; color: %1;")
+            value->setStyleSheet(QStringLiteral("font-size: 11px; color: %1;")
                                      .arg(descriptor.kind == QStringLiteral("plugin")
                                               ? descriptor.accent.name()
                                               : QStringLiteral("#70d9bd")));
@@ -495,7 +500,7 @@ void InspectorPanel::mountControl(QVBoxLayout* layout, const ControlDescriptor& 
         auto* help = new QLabel(control.help, content_);
         help->setWordWrap(true);
         help->setTextFormat(Qt::PlainText);
-        help->setStyleSheet(QStringLiteral("color: #8b95a7; font-size: 10px;"));
+        help->setStyleSheet(QStringLiteral("color: #8b95a7; font-size: 11px;"));
         layout->addWidget(help);
     }
 }
@@ -518,7 +523,7 @@ void InspectorPanel::mountPlayer(QVBoxLayout* layout, const NodeDescriptor& desc
                               {QStringLiteral("action"), QStringLiteral("load")},
                               {QStringLiteral("path"), file}});
     });
-    auto* play = new QPushButton(QStringLiteral("▶ Reproduzir"), content_);
+    auto* play = new QPushButton(QStringLiteral("Reproduzir"), content_);
     play->setObjectName(QStringLiteral("playerPlay"));
     play->setProperty("playerAction", true);
     play->setEnabled(false);
@@ -644,8 +649,8 @@ void InspectorPanel::synchronize() {
         const auto presentation = playbackState(session_.snapshot(), node, session_.devices(),
                                                 session_.online(), session_.busy(), savedPath_);
         playButton_->setText(presentation.playing && descriptor.fileTransport
-                                 ? QStringLiteral("Ⅱ Pausar")
-                                 : QStringLiteral("▶ Reproduzir"));
+                                 ? QStringLiteral("Pausar")
+                                 : QStringLiteral("Reproduzir"));
         playButton_->setEnabled(presentation.canPlay ||
                                 (presentation.playing && descriptor.fileTransport &&
                                  session_.online() && !session_.busy()));

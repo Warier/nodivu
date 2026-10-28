@@ -21,6 +21,13 @@ AudioState audioState(const QJsonObject& snapshot, const QJsonArray& devices, bo
                 QStringLiteral("Tentar detectar novamente"), AudioAction::Refresh,
                 phase == QStringLiteral("running") &&
                     !snapshot.value(QStringLiteral("muted")).toBool()};
+    if (snapshot.value(QStringLiteral("graph"))
+            .toObject()
+            .value(QStringLiteral("nodes"))
+            .toArray()
+            .isEmpty())
+        return {QStringLiteral("Comece pelo seu áudio"),
+                QStringLiteral("Escolha microfone, aplicativo ou arquivo na área de projeto.")};
     QString output;
     for (const auto& value : snapshot.value(QStringLiteral("graph"))
                                  .toObject()
@@ -80,7 +87,10 @@ AudioState audioState(const QJsonObject& snapshot, const QJsonArray& devices, bo
         return {QStringLiteral("Saída ativa · microfone indisponível"),
                 captureError + QStringLiteral(" O player ainda pode tocar. Confira a entrada e "
                                               "tente reabrir os dispositivos."),
-                QStringLiteral("Reabrir dispositivos"), AudioAction::Retry, true};
+                QStringLiteral("Reabrir dispositivos"),
+                AudioAction::Retry,
+                true,
+                true};
     const auto missing = snapshot.value(QStringLiteral("missing_plugins")).toArray();
     if (!missing.isEmpty()) {
         QStringList names;
@@ -96,18 +106,31 @@ AudioState audioState(const QJsonObject& snapshot, const QJsonArray& devices, bo
                     names.join(QStringLiteral(", ")),
                 {},
                 AudioAction::None,
+                true,
                 true};
     }
     if (snapshot.value(QStringLiteral("signal")).toInt() == 0)
-        return {QStringLiteral("Saída pronta · conecte os blocos"),
+        return {snapshot.value(QStringLiteral("graph"))
+                        .toObject()
+                        .value(QStringLiteral("edges"))
+                        .toArray()
+                        .isEmpty()
+                    ? QStringLiteral("Saída pronta · conecte os blocos")
+                    : QStringLiteral("Saída pronta · configure a fonte"),
                 QStringLiteral(
                     "O dispositivo está aberto. Conecte uma fonte à saída ou a um consumidor; o "
                     "áudio passa automaticamente quando o caminho estiver pronto."),
                 {},
                 AudioAction::None,
                 true};
-    return {QStringLiteral("Áudio ativo"),
-            QStringLiteral("Destino: ") + endpoint.value(QStringLiteral("name")).toString(),
+    const bool measured = snapshot.value(QStringLiteral("metrics"))
+                              .toObject()
+                              .value(QStringLiteral("output_peak"))
+                              .toDouble() > 0.000001;
+    return {measured ? QStringLiteral("Sinal detectado na saída")
+                     : QStringLiteral("Saída ativa · sem sinal"),
+            QStringLiteral("Destino: ") + endpoint.value(QStringLiteral("name")).toString() +
+                QStringLiteral(". Medição do aplicativo; confirme a recepção no destino."),
             {},
             AudioAction::None,
             true};

@@ -5,7 +5,9 @@
 #include "features/updates/update_panel.hpp"
 #include "ui/controls/action_availability.hpp"
 #include "ui/controls/device_selector.hpp"
+#include "ui/theme/studio_icons.hpp"
 #include "ui/theme/studio_panel_style.hpp"
+#include "ui/theme/theme.hpp"
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -13,6 +15,7 @@
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
@@ -20,6 +23,8 @@
 #include <QScrollBar>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QStackedWidget>
+#include <QTabBar>
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
@@ -64,34 +69,50 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
             "QFrame#systemPanel { background: #19222c; border-left: 1px solid #2b333f; }"));
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
-    scroll_ = new QScrollArea(this);
-    scroll_->setObjectName(QStringLiteral("systemScroll"));
-    scroll_->setWidgetResizable(true);
-    scroll_->setFrameShape(QFrame::NoFrame);
-    scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    auto* content = new QWidget(scroll_);
-    auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(20, 16, 20, 20);
-    layout->setSpacing(10);
-    auto* heading = new QHBoxLayout;
-    heading->addWidget(text(QStringLiteral("Sistema"), content, QStringLiteral("heading")), 1);
-    auto* close = new QPushButton(QStringLiteral("×"), content);
+    auto* headingWidget = new QWidget(this);
+    auto* heading = new QHBoxLayout(headingWidget);
+    heading->setContentsMargins(20, 12, 12, 8);
+    heading->addWidget(text(QStringLiteral("Sistema"), headingWidget, QStringLiteral("heading")),
+                       1);
+    auto* close = new QPushButton(headingWidget);
+    close->setIcon(studioIcon(StudioIcon::Close));
     close->setObjectName(QStringLiteral("systemClose"));
     close->setProperty("role", QStringLiteral("close"));
-    close->setFixedSize(28, 28);
+    close->setFixedSize(32, 32);
     close->setAccessibleName(QStringLiteral("Fechar sistema"));
     close->setToolTip(close->accessibleName());
     heading->addWidget(close);
-    layout->addLayout(heading);
-    layout->addSpacing(10);
     connect(close, &QPushButton::clicked, this, &QWidget::hide);
-    plugins_ = new QPushButton(QStringLiteral("▧ Plugins instalados"), content);
-    plugins_->setObjectName(QStringLiteral("systemPlugins"));
-    layout->addWidget(plugins_);
-    connect(plugins_, &QPushButton::clicked, this, &SystemPanel::storeRequested);
-    divider(layout, content);
+    outer->addWidget(headingWidget);
+    tabs_ = new QTabBar(this);
+    tabs_->setObjectName(QStringLiteral("systemSections"));
+    tabs_->setAccessibleName(QStringLiteral("Seções do Sistema"));
+    for (const auto& title :
+         {QStringLiteral("Áudio"), QStringLiteral("Projeto"), QStringLiteral("Aplicativo")})
+        tabs_->addTab(title);
+    tabs_->setExpanding(true);
+    outer->addWidget(tabs_);
+    pages_ = new QStackedWidget(this);
+    outer->addWidget(pages_, 1);
+    const auto makePage = [this](const QString& name) {
+        auto* page = new QScrollArea(pages_);
+        page->setObjectName(name);
+        page->setWidgetResizable(true);
+        page->setFrameShape(QFrame::NoFrame);
+        page->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        pages_->addWidget(page);
+        return page;
+    };
+    scroll_ = makePage(QStringLiteral("systemScroll"));
+    auto* projectScroll = makePage(QStringLiteral("projectSystemScroll"));
+    auto* appScroll = makePage(QStringLiteral("appSystemScroll"));
+    connect(tabs_, &QTabBar::currentChanged, pages_, &QStackedWidget::setCurrentIndex);
+    auto* content = new QWidget(scroll_);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(Theme::PanelPadding, 16, Theme::PanelPadding, Theme::PanelPadding);
+    layout->setSpacing(Theme::ControlSpacing);
     auto* cableToggle = new QToolButton(content);
-    cableToggle->setText(QStringLiteral("Microfone virtual · VB-CABLE"));
+    cableToggle->setText(QStringLiteral("Cabo virtual · configuração opcional"));
     cableToggle->setObjectName(QStringLiteral("cableSetup"));
     cableToggle->setCheckable(true);
     cableToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -218,7 +239,7 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
         auto* row = new QHBoxLayout;
         row->addWidget(text(name, content), 1);
         value = text(QStringLiteral("Silêncio"), content);
-        value->setStyleSheet(QStringLiteral("color: #c2d3de; font-size: 9px;"));
+        value->setStyleSheet(QStringLiteral("color: #c2d3de; font-size: 11px;"));
         row->addWidget(value);
         layout->addLayout(row);
         bar = new QProgressBar(content);
@@ -231,7 +252,14 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
     mountMeter(QStringLiteral("Captura / gerador"), inputDb_, inputMeter_);
     mountMeter(QStringLiteral("Enviado à saída"), outputDb_, outputMeter_);
     divider(layout, content);
-    layout->addWidget(text(QStringLiteral("FIOS"), content, QStringLiteral("eyebrow")));
+    layout->addStretch();
+    scroll_->setWidget(content);
+    content = new QWidget(projectScroll);
+    layout = new QVBoxLayout(content);
+    layout->setContentsMargins(Theme::PanelPadding, 16, Theme::PanelPadding, Theme::PanelPadding);
+    layout->setSpacing(Theme::ControlSpacing);
+    layout->addWidget(
+        text(QStringLiteral("CONEXÕES DO PROJETO"), content, QStringLiteral("eyebrow")));
     connections_ = new QVBoxLayout;
     connections_->setContentsMargins(0, 0, 0, 0);
     layout->addLayout(connections_);
@@ -249,6 +277,18 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
     layout->addWidget(discard_);
     connect(restore_, &QPushButton::clicked, &projects_, &ProjectController::restoreRecovery);
     connect(discard_, &QPushButton::clicked, this, &SystemPanel::discardRecoveryRequested);
+    divider(layout, content);
+    layout->addStretch();
+    projectScroll->setWidget(content);
+    content = new QWidget(appScroll);
+    layout = new QVBoxLayout(content);
+    layout->setContentsMargins(Theme::PanelPadding, 16, Theme::PanelPadding, Theme::PanelPadding);
+    layout->setSpacing(Theme::ControlSpacing);
+    plugins_ = new QPushButton(QStringLiteral("Gerenciar plugins"), content);
+    plugins_->setIcon(studioIcon(StudioIcon::Plugin));
+    plugins_->setObjectName(QStringLiteral("systemPlugins"));
+    layout->addWidget(plugins_);
+    connect(plugins_, &QPushButton::clicked, this, &SystemPanel::storeRequested);
     divider(layout, content);
     layout->addWidget(text(QStringLiteral("ATUALIZAÇÕES"), content, QStringLiteral("eyebrow")));
     updates_ = new UpdatePanel(paths_.profile, paths_.updatesSource, content);
@@ -273,8 +313,7 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
                                           "entrada; saídas podem alimentar vários destinos."),
                            content));
     layout->addStretch();
-    scroll_->setWidget(content);
-    outer->addWidget(scroll_);
+    appScroll->setWidget(content);
     parent->installEventFilter(this);
     connect(&session_, &SessionController::changed, this, &SystemPanel::synchronize);
     connect(&session_, &SessionController::activityChanged, this, &SystemPanel::synchronize);
@@ -287,8 +326,10 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
 void SystemPanel::fitToParent() {
     if (parentWidget()) {
         const auto size = parentWidget()->size();
-        const int width = std::min(340, qRound(size.width() * .9));
-        setGeometry(size.width() - width, 64, width, std::max(100, size.height() - 64));
+        const int width = std::min(Theme::SidePanelWidth, qRound(size.width() * .9));
+        const auto* menu = parentWidget()->findChild<QMenuBar*>();
+        const int top = menu ? menu->geometry().bottom() + 1 : 88;
+        setGeometry(size.width() - width, top, width, std::max(100, size.height() - top));
     }
 }
 bool SystemPanel::eventFilter(QObject* watched, QEvent* event) {
@@ -300,6 +341,7 @@ void SystemPanel::showEvent(QShowEvent* event) {
     fitToParent();
     raise();
     synchronize();
+    emit shown();
     QFrame::showEvent(event);
 }
 void SystemPanel::keyPressEvent(QKeyEvent* event) {
@@ -311,6 +353,7 @@ void SystemPanel::keyPressEvent(QKeyEvent* event) {
     QFrame::keyPressEvent(event);
 }
 void SystemPanel::openMonitor() {
+    tabs_->setCurrentIndex(0);
     show();
     raise();
     QTimer::singleShot(0, this, [this] {
@@ -321,6 +364,19 @@ void SystemPanel::openMonitor() {
             monitorSection_->setFocus(Qt::ShortcutFocusReason);
     });
 }
+void SystemPanel::openProject() {
+    tabs_->setCurrentIndex(1);
+    show();
+    raise();
+    setFocus();
+}
+void SystemPanel::openApplication() {
+    tabs_->setCurrentIndex(2);
+    show();
+    raise();
+    setFocus();
+}
+
 void SystemPanel::synchronizeMonitor() {
     auto state =
         monitorState(session_.snapshot(), session_.devices(), session_.online(),

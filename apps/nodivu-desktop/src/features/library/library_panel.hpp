@@ -2,6 +2,8 @@
 #include "contracts/node_descriptor.hpp"
 #include <QWidget>
 class QScrollArea;
+class QLineEdit;
+class QLabel;
 class QToolButton;
 class QVBoxLayout;
 class QPushButton;
@@ -13,6 +15,7 @@ class LibraryPanel final : public QWidget {
     explicit LibraryPanel(QWidget* parent = nullptr);
     void setCatalog(const NodeCatalog& catalog);
     void setVirtualOutputEnabled(bool enabled);
+    void focusSearch();
   signals:
     void addRequested(const QString& kind, const QString& pluginId);
     void virtualOutputRequested();
@@ -28,6 +31,9 @@ class LibraryPanel final : public QWidget {
         bool expanded = true;
     };
     void toggleCollapsed();
+    void filterBlocks();
+    QLineEdit* search_ = nullptr;
+    QLabel* noResults_ = nullptr;
     QScrollArea* scroll_ = nullptr;
     QVBoxLayout* contentLayout_ = nullptr;
     QWidget* headingLabels_ = nullptr;
@@ -37,6 +43,6 @@ class LibraryPanel final : public QWidget {
     QPushButton* virtualOutput_ = nullptr;
     QVector<Category> categories_;
     bool collapsed_ = false;
-    int expandedWidth_ = 228;
+    int expandedWidth_ = 248;
 };
 } // namespace nodivu

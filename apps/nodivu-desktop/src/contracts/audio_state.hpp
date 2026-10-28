@@ -9,6 +9,7 @@ struct AudioState {
     QString label;
     AudioAction action = AudioAction::None;
     bool ready = false;
+    bool attention = false;
 };
 AudioState audioState(const QJsonObject& snapshot, const QJsonArray& devices, bool online,
                       const QString& deviceIssue = {});

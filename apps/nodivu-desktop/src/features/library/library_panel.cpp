@@ -1,6 +1,9 @@
 #include "features/library/library_panel.hpp"
 #include "features/library/library_block_button.hpp"
+#include "ui/controls/search_text.hpp"
+#include "ui/theme/studio_icons.hpp"
 #include "ui/theme/theme.hpp"
+#include <QLineEdit>
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -60,18 +63,34 @@ LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
     headingLayout->addWidget(headingLabels_, 1);
     toggle_ = new QToolButton(heading);
     toggle_->setObjectName(QStringLiteral("libraryToggle"));
-    toggle_->setText(QStringLiteral("☰"));
+    toggle_->setIcon(studioIcon(StudioIcon::Menu));
     toggle_->setAccessibleName(QStringLiteral("Recolher ou expandir biblioteca"));
     toggle_->setToolTip(QStringLiteral("Recolher biblioteca"));
     toggle_->setCheckable(true);
     toggle_->setFixedSize(32, 32);
     toggle_->setStyleSheet(QStringLiteral(
-        "QToolButton { color: #a4afc0; background: transparent; border: 0; font-size: 10px; }"
+        "QToolButton { color: #a4afc0; background: transparent; border: 0; font-size: 11px; }"
         "QToolButton:hover, QToolButton:focus { color: #70d9bd; background: #26313e; "
         "border-radius: 5px; }"));
     headingLayout->addWidget(toggle_);
     connect(toggle_, &QToolButton::clicked, this, &LibraryPanel::toggleCollapsed);
     contentLayout_->addWidget(heading);
+    search_ = new QLineEdit(content);
+    search_->setObjectName(QStringLiteral("blockSearch"));
+    search_->setAccessibleName(QStringLiteral("Buscar blocos"));
+    search_->setPlaceholderText(QStringLiteral("Buscar blocos…"));
+    search_->setClearButtonEnabled(true);
+    search_->addAction(studioIcon(StudioIcon::Search), QLineEdit::LeadingPosition);
+    search_->setMinimumHeight(34);
+    contentLayout_->addSpacing(12);
+    contentLayout_->addWidget(search_);
+    noResults_ =
+        new QLabel(QStringLiteral("Nenhum bloco encontrado. Tente outro nome ou função."), content);
+    noResults_->setObjectName(QStringLiteral("blockSearchEmpty"));
+    noResults_->setWordWrap(true);
+    noResults_->hide();
+    contentLayout_->addWidget(noResults_);
+    connect(search_, &QLineEdit::textChanged, this, &LibraryPanel::filterBlocks);
     intro_ = new QWidget(content);
     auto* introLayout = new QVBoxLayout(intro_);
     introLayout->setContentsMargins(0, 14, 0, 16);
@@ -81,15 +100,17 @@ LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
     help->setWordWrap(true);
     help->setStyleSheet(QStringLiteral("font-size: 11px; color: #95a1b2;"));
     introLayout->addWidget(help);
-    auto* virtualOutput =
-        new QPushButton(QStringLiteral("↙ Microfone virtual · configurar"), intro_);
+    auto* virtualOutput = new QPushButton(QStringLiteral("Configurar saída"), intro_);
+    virtualOutput->setIcon(studioIcon(StudioIcon::Output));
+    virtualOutput->setToolTip(
+        QStringLiteral("Escolher fones, alto-falantes ou um cabo virtual opcional."));
     virtualOutput->setObjectName(QStringLiteral("virtualOutputShortcut"));
     virtualOutput_ = virtualOutput;
     virtualOutput->setEnabled(false);
     virtualOutput->setFixedHeight(34);
     virtualOutput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     virtualOutput->setStyleSheet(
-        QStringLiteral("QPushButton { font-size: 10px; background: #252333; border: 1px solid "
+        QStringLiteral("QPushButton { font-size: 11px; background: #252333; border: 1px solid "
                        "#4f4566; padding: 8px; }"
                        "QPushButton:hover, QPushButton:focus { border-color: #70d9bd; }"));
     introLayout->addWidget(virtualOutput);
@@ -118,7 +139,7 @@ LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
         category.toggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         category.toggle->setFixedHeight(26);
         category.toggle->setStyleSheet(
-            QStringLiteral("QToolButton { text-align: left; color: #a2afbe; font-size: 10px; "
+            QStringLiteral("QToolButton { text-align: left; color: #a2afbe; font-size: 11px; "
                            "background: transparent; border: 0; padding: 7px 2px; }"
                            "QToolButton:hover, QToolButton:focus { color: #70d9bd; }"));
         groupLayout->addWidget(category.toggle);
@@ -140,7 +161,7 @@ LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
                                       "opções.\nGanho e bypass sem parar o áudio."),
                        content);
     note_->setContentsMargins(0, 24, 0, 0);
-    note_->setStyleSheet(QStringLiteral("font-size: 10px; color: #95a1b2;"));
+    note_->setStyleSheet(QStringLiteral("font-size: 11px; color: #95a1b2;"));
     contentLayout_->addWidget(note_);
     contentLayout_->addStretch(1);
     scroll_->setWidget(content);
@@ -165,6 +186,7 @@ void LibraryPanel::setCatalog(const NodeCatalog& catalog) {
             if (category.name != name)
                 continue;
             auto* button = new LibraryBlockButton(descriptor, category.cards);
+            button->setProperty("searchTerms", blockSearchText(descriptor));
             button->setCompact(collapsed_);
             category.layout->addWidget(button);
             connect(button, &QPushButton::clicked, this,
@@ -174,8 +196,33 @@ void LibraryPanel::setCatalog(const NodeCatalog& catalog) {
             break;
         }
     }
-    for (const auto& category : categories_)
-        category.container->setVisible(category.layout->count() > 0);
+    filterBlocks();
+}
+
+void LibraryPanel::focusSearch() {
+    if (collapsed_)
+        toggleCollapsed();
+    scroll_->ensureWidgetVisible(search_);
+    search_->setFocus(Qt::ShortcutFocusReason);
+    search_->selectAll();
+}
+void LibraryPanel::filterBlocks() {
+    int visible = 0;
+    for (const auto& category : categories_) {
+        bool found = false;
+        for (int i = 0; i < category.layout->count(); ++i) {
+            auto* button = category.layout->itemAt(i)->widget();
+            const bool match =
+                matchesSearchText(button->property("searchTerms").toString(), search_->text());
+            button->setVisible(match);
+            found |= match;
+            visible += match ? 1 : 0;
+        }
+        category.container->setVisible(found);
+        if (!search_->text().trimmed().isEmpty())
+            category.toggle->setChecked(true);
+    }
+    noResults_->setVisible(visible == 0);
 }
 
 void LibraryPanel::toggleCollapsed() {
@@ -184,6 +231,9 @@ void LibraryPanel::toggleCollapsed() {
     collapsed_ = !collapsed_;
     setMinimumWidth(collapsed_ ? 64 : 184);
     setMaximumWidth(collapsed_ ? 64 : 320);
+    search_->setVisible(!collapsed_);
+    if (collapsed_)
+        search_->clear();
     headingLabels_->setVisible(!collapsed_);
     intro_->setVisible(!collapsed_);
     note_->setVisible(!collapsed_);

@@ -42,7 +42,7 @@ class SessionController final : public QObject {
     void beginShutdown();
     void refreshDevices();
     void addNode(const QString& kind, const QString& pluginId = {});
-    void addInitialNodes();
+    void addInitialNodes(const NodeDescriptor& source = {});
     void removeNode(const QString& id);
     void connectNodes(const QString& from, int fromPort, const QString& to, int toPort);
     void disconnectEdge(const QJsonObject& edge);

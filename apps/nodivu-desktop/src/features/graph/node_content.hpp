@@ -19,6 +19,7 @@ class NodeContent final : public QWidget {
                      const QJsonObject& runtime = {});
     void setPlayback(const PlaybackState& state, bool enabled);
     void focusPrimaryControl();
+    void setSignalStatus(const QString& text);
     void addCaptureWidget(QWidget* widget);
     void resizeToContents();
   signals:

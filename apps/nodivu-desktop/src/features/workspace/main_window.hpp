@@ -23,6 +23,7 @@ class ProjectController;
 class StoreController;
 class SystemPanel;
 class AudioStatusPanel;
+class FeedbackBanner;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
   public:
@@ -51,6 +52,7 @@ class MainWindow final : public QMainWindow {
     void updateZoomControls();
     void updateActions();
     void updateRecents();
+    void arrangeStarter();
     void discardRecovery();
     void configureVirtualOutput();
     void showSettings();
@@ -66,7 +68,8 @@ class MainWindow final : public QMainWindow {
     InspectorPanel* inspector_ = nullptr;
     AudioStatusPanel* audioStatus_ = nullptr;
     QLabel* revision_ = nullptr;
-    QLabel* error_ = nullptr;
+    FeedbackBanner* error_ = nullptr;
+    QLabel* projectState_ = nullptr;
     QLabel* projectTitle_ = nullptr;
     QMenu* recents_ = nullptr;
     ProjectController* projects_ = nullptr;
@@ -80,6 +83,9 @@ class MainWindow final : public QMainWindow {
     QPushButton* fit_ = nullptr;
     QAction* open_ = nullptr;
     QAction* save_ = nullptr;
+    QAction* saveAs_ = nullptr;
+    QAction* undo_ = nullptr;
+    QAction* redo_ = nullptr;
     QAction* listen_ = nullptr;
     QAction* settings_ = nullptr;
     QAction* inspect_ = nullptr;
@@ -96,6 +102,7 @@ class MainWindow final : public QMainWindow {
     bool closing_ = false;
     bool shutdownComplete_ = false;
     bool virtualOutputPending_ = false;
+    bool starterPending_ = false;
     QString installer_;
     QString installerHash_;
     QString lastSnapshotError_;

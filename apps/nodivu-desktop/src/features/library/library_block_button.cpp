@@ -1,4 +1,5 @@
 #include "features/library/library_block_button.hpp"
+#include "ui/theme/studio_icons.hpp"
 #include "ui/theme/theme.hpp"
 
 #include <QApplication>
@@ -13,14 +14,49 @@
 #include <algorithm>
 
 namespace nodivu {
+namespace {
+QString libraryDescription(const NodeDescriptor& descriptor) {
+    if (descriptor.kind == QStringLiteral("capture"))
+        return QStringLiteral(
+            "Traz o áudio do microfone ou da entrada selecionada para o projeto.");
+    if (descriptor.kind == QStringLiteral("output"))
+        return QStringLiteral(
+            "Envia o áudio conectado para seus fones, caixas ou microfone virtual.");
+    if (descriptor.kind == QStringLiteral("gain"))
+        return QStringLiteral("Aumenta ou reduz o volume do áudio que passa pelo bloco.");
+    if (descriptor.kind == QStringLiteral("tone"))
+        return QStringLiteral("Gera um som de teste para conferir as conexões e a saída de áudio.");
+    if (descriptor.kind == QStringLiteral("mixer"))
+        return QStringLiteral("Combina até quatro entradas de áudio em uma única saída.");
+    if (descriptor.kind == QStringLiteral("meter"))
+        return QStringLiteral("Mostra o nível do áudio recebido, sem enviar o som adiante.");
+    if (descriptor.filePlayer)
+        return QStringLiteral("Reproduz um arquivo de áudio e envia o som aos blocos conectados.");
+    if (descriptor.captureSource)
+        return QStringLiteral("Traz o som de um aplicativo ou do PC para o projeto.");
+    const auto description = descriptor.description.simplified();
+    if (!description.isEmpty()) {
+        const auto sentenceEnd = description.indexOf(QStringLiteral(". "));
+        return sentenceEnd < 0 ? description : description.left(sentenceEnd + 1);
+    }
+    if (descriptor.inputs == 0)
+        return QStringLiteral("Fornece áudio para os blocos conectados no projeto.");
+    if (descriptor.outputs == 0)
+        return QStringLiteral("Recebe o áudio dos blocos conectados no projeto.");
+    return QStringLiteral("Processa o áudio recebido antes de enviá-lo aos próximos blocos.");
+}
+} // namespace
 
 LibraryBlockButton::LibraryBlockButton(const NodeDescriptor& descriptor, QWidget* parent)
     : QPushButton(descriptor.title, parent), descriptor_(descriptor) {
     setObjectName(descriptor.catalogKey());
     setAccessibleName(descriptor.title);
     setAccessibleDescription(descriptor.subtitle + QLatin1Char('\n') + descriptor.description);
-    setToolTip(descriptor.title +
-               QStringLiteral(" · arraste para o projeto ou clique para adicionar"));
+    const auto instruction =
+        descriptor.title + QStringLiteral(" · arraste para o projeto ou clique para adicionar");
+    setToolTip(
+        QStringLiteral("<qt>%1<br><br>%2</qt>")
+            .arg(instruction.toHtmlEscaped(), libraryDescription(descriptor).toHtmlEscaped()));
     setCursor(Qt::OpenHandCursor);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setMinimumWidth(0);
@@ -60,35 +96,37 @@ void LibraryBlockButton::paintEvent(QPaintEvent*) {
     font.setPixelSize(19);
     painter.setFont(font);
     painter.setPen(Theme::mint());
-    painter.drawText(compact_ ? card : QRectF(card.left() + 24, card.top(), 22, card.height()),
-                     Qt::AlignCenter, descriptor_.icon());
+    paintStudioIcon(painter, blockIcon(descriptor_),
+                    compact_ ? card.adjusted(9, 9, -9, -9)
+                             : QRectF(card.left() + 24, card.top() + 16, 22, 22),
+                    Theme::mint());
     if (!compact_) {
         font.setPixelSize(12);
         painter.setFont(font);
         painter.setPen(QColor(122, 137, 156));
-        painter.drawText(QRectF(card.left() + 9, card.top(), 10, card.height()), Qt::AlignCenter,
-                         QStringLiteral("⠿"));
+        paintStudioIcon(painter, StudioIcon::Grip, QRectF(card.left() + 6, card.top() + 19, 13, 16),
+                        Theme::muted());
         const qreal labelLeft = card.left() + 54;
         const qreal labelWidth = std::max(0.0, card.width() - 82);
-        font.setPixelSize(11);
+        font.setPixelSize(Theme::BodyFont);
         font.setWeight(QFont::DemiBold);
         painter.setFont(font);
         painter.setPen(QColor(228, 232, 238));
         painter.drawText(QRectF(labelLeft, card.top() + 11, labelWidth, 15), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(descriptor_.title, Qt::ElideRight,
                                                           static_cast<int>(labelWidth)));
-        font.setPixelSize(8);
+        font.setPixelSize(Theme::DetailFont);
         font.setWeight(QFont::Normal);
         painter.setFont(font);
         painter.setPen(Theme::muted());
-        painter.drawText(QRectF(labelLeft, card.top() + 30, labelWidth, 11), Qt::AlignVCenter,
+        painter.drawText(QRectF(labelLeft, card.top() + 30, labelWidth, 16), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(descriptor_.subtitle, Qt::ElideRight,
                                                           static_cast<int>(labelWidth)));
         font.setPixelSize(16);
         painter.setFont(font);
         painter.setPen(QColor(228, 232, 238));
-        painter.drawText(QRectF(card.right() - 22, card.top(), 12, card.height()), Qt::AlignCenter,
-                         QStringLiteral("+"));
+        paintStudioIcon(painter, StudioIcon::Plus,
+                        QRectF(card.right() - 22, card.top() + 20, 14, 14), Theme::muted());
     }
     painter.setBrush(Theme::headerBackground());
     const qreal portY = compact_ ? card.center().y() : card.top() + 24;

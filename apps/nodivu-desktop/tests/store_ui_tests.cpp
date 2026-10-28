@@ -9,9 +9,11 @@
 #include <QImage>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QMenu>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTextDocument>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QtTest>
 
@@ -88,7 +90,11 @@ class StoreUiTests final : public QObject {
         QVERIFY(!rollback->isEnabled() && !cancel->isEnabled());
         QVERIFY(
             list->topLevelItem(0)->text(2).contains(QStringLiteral("DLL fixture could not load")));
-        enable->click();
+        auto* more = window.findChild<QToolButton*>(QStringLiteral("pluginMoreActions"));
+        QVERIFY(more && more->isEnabled() && !more->isHidden());
+        QVERIFY(enable->isHidden() && remove->isHidden());
+        QCOMPARE(details->text(), enable->text());
+        details->click();
         QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 5000);
         QVERIFY(!controller.state().installed.first().enabled);
         QVERIFY(controller.state().packageStatus.value(key).pending);
@@ -106,13 +112,19 @@ class StoreUiTests final : public QObject {
             QVERIFY(window.grab().save(
                 QDir(screenshots).filePath(QStringLiteral("plugins-pending.png"))));
         }
-        cancel->click();
+        QAction* cancelAction = nullptr;
+        for (auto* option : more->menu()->actions())
+            if (option->text() == cancel->text())
+                cancelAction = option;
+        QVERIFY(cancelAction && cancelAction->isEnabled());
+        cancelAction->trigger();
         QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 5000);
         QVERIFY(controller.state().packageStatus.value(key).pendingVersion.isEmpty());
         QVERIFY(!cancel->isEnabled() && remove->isEnabled());
         QCOMPARE(controller.state().installed.first().version, QStringLiteral("1.0.0"));
         list->clearSelection();
         QVERIFY(!enable->isEnabled() && !remove->isEnabled() && !details->isEnabled());
+        QVERIFY(!more->isEnabled());
     }
     void protectedPackagesAndBrokenReportsRemainExplicit() {
         QTemporaryDir directory;

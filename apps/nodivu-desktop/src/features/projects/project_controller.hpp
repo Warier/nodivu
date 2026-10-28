@@ -40,6 +40,14 @@ class ProjectController final : public QObject {
     }
     void open(const QString& file = {});
     void save(const QString& file = {});
+    void saveAs();
+    QDateTime savedAt() const {
+        return savedAt_;
+    }
+    bool canUndo() const;
+    bool canRedo() const;
+    void undo();
+    void redo();
     void restoreRecovery();
     void discardRecovery();
     void prepareAudio();
@@ -60,6 +68,11 @@ class ProjectController final : public QObject {
     void waitToPrepareAudio();
     void retryPreparedAudio();
     void recordRecoveryResult(const FileResult& result);
+    void queueHistory();
+    void commitHistory();
+    void resetHistory();
+    void restoreHistory(int index);
+    void restoreHistoryResources(int historyIndex, QJsonArray commands, qsizetype index);
     QString recoveryFile() const;
     SessionController& session_;
     GraphScene& scene_;
@@ -83,5 +96,12 @@ class ProjectController final : public QObject {
     QDeadlineTimer preparationDeadline_;
     QDateTime recoverySavedAt_;
     QString recoveryError_;
+    QDateTime savedAt_;
+    QTimer historyTimer_;
+    QVector<QJsonObject> history_;
+    QJsonObject pendingHistory_;
+    int historyIndex_ = -1;
+    bool historyApplying_ = false;
+    bool resetHistoryAfterOpen_ = false;
 };
 } // namespace nodivu

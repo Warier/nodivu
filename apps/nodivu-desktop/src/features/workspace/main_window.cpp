@@ -15,6 +15,9 @@
 #include "features/workspace/system_panel.hpp"
 #include "platform/profile_backup.hpp"
 #include "ui/controls/action_availability.hpp"
+#include "ui/controls/command_palette.hpp"
+#include "ui/controls/feedback_banner.hpp"
+#include "ui/theme/studio_icons.hpp"
 #include "ui/theme/studio_panel_style.hpp"
 #include "ui/theme/theme.hpp"
 
@@ -29,6 +32,7 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QFutureWatcher>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
@@ -38,6 +42,7 @@
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTimer>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QtConcurrentRun>
@@ -86,13 +91,15 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     projectLayout->setAlignment(Qt::AlignVCenter);
     projectTitle_ = new QLabel(QStringLiteral("Projeto sem título"), projectHeader);
     projectTitle_->setObjectName(QStringLiteral("projectTitle"));
+    projectTitle_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     projectTitle_->setTextFormat(Qt::PlainText);
     projectTitle_->setStyleSheet(
         QStringLiteral("color: #ffffff; font-size: 12px; font-weight: 500;"));
     projectLayout->addWidget(projectTitle_);
     auto* subtitle = new QLabel(QStringLiteral("Áudio contínuo · edição ao vivo"), projectHeader);
     subtitle->setObjectName(QStringLiteral("projectSubtitle"));
-    subtitle->setStyleSheet(QStringLiteral("color: #95a1b2; font-size: 10px; font-weight: 400;"));
+    subtitle->setStyleSheet(QStringLiteral("color: #95a1b2; font-size: 11px; font-weight: 400;"));
+    projectState_ = subtitle;
     projectLayout->addWidget(subtitle);
     tools->addWidget(projectHeader, 1);
     // Keep the safety control directly reachable while administrative actions live in menus.
@@ -131,22 +138,37 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     auto* open =
         action(fileMenu, QStringLiteral("&Abrir projeto…"), "projectOpen", QKeySequence::Open);
     auto* save =
-        action(fileMenu, QStringLiteral("&Salvar projeto…"), "projectSave", QKeySequence::Save);
+        action(fileMenu, QStringLiteral("&Salvar projeto"), "projectSave", QKeySequence::Save);
     open_ = open;
     save_ = save;
+    saveAs_ = action(fileMenu, QStringLiteral("Salvar projeto &como…"), "projectSaveAs",
+                     QKeySequence(QStringLiteral("Ctrl+Shift+S")));
     recents_ = menu(QStringLiteral("Projetos &recentes"), "projectRecents", fileMenu);
     fileMenu->addSeparator();
     auto* folder = action(fileMenu, QStringLiteral("Abrir &pasta de projetos"), "projectFolder");
     setActionAvailability(folder, QStringLiteral("Abrir a pasta padrão de projetos"));
+    auto* projectPanel = action(fileMenu, QStringLiteral("Recuperação e informações do projeto"),
+                                "projectInformation");
     fileMenu->addSeparator();
     auto* quit = action(fileMenu, QStringLiteral("Sai&r"), "quitApplication",
                         QKeySequence(QStringLiteral("Alt+F4")));
     connect(quit, &QAction::triggered, this, [this] { close(); });
 
+    auto* editMenu = menu(QStringLiteral("&Editar"), "editMenu");
+    undo_ = action(editMenu, QStringLiteral("&Desfazer"), "editUndo", QKeySequence::Undo);
+    redo_ = action(editMenu, QStringLiteral("&Refazer"), "editRedo",
+                   QKeySequence(QStringLiteral("Ctrl+Shift+Z")));
+    undo_->setIcon(studioIcon(StudioIcon::Undo));
+    redo_->setIcon(studioIcon(StudioIcon::Redo));
     auto* viewMenu = menu(QStringLiteral("&Exibir"), "viewMenu");
     settings_ = action(viewMenu, QStringLiteral("Painel &Sistema"), "settingsToggle",
                        QKeySequence(QStringLiteral("Ctrl+,")));
     settings_->setCheckable(true);
+    auto* searchBlocks = action(viewMenu, QStringLiteral("Buscar &blocos…"), "searchBlocks",
+                                QKeySequence(QStringLiteral("Ctrl+F")));
+    auto* palette = action(viewMenu, QStringLiteral("Buscar &comando…"), "commandPalette",
+                           QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+    connect(palette, &QAction::triggered, this, [this, menus] { showCommandPalette(this, menus); });
     auto* inspect =
         action(viewMenu, QStringLiteral("&Inspetor do bloco selecionado"), "inspectSelected");
     inspect_ = inspect;
@@ -174,12 +196,16 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     connect(managePlugins_, &QAction::triggered, this, &MainWindow::storeRequested);
 
     auto* helpMenu = menu(QStringLiteral("A&juda"), "helpMenu");
+    auto* applicationPanel =
+        action(helpMenu, QStringLiteral("Atualizações e diagnóstico…"), "applicationInformation");
     auto* shortcuts = action(helpMenu, QStringLiteral("&Atalhos e navegação"), "keyboardHelp");
     connect(shortcuts, &QAction::triggered, this, [this] {
         QMessageBox::information(
             this, QStringLiteral("Atalhos e navegação"),
             QStringLiteral(
-                "Ctrl+O · Abrir projeto\nCtrl+S · Salvar projeto\n"
+                "Ctrl+O · Abrir projeto\nCtrl+S · Salvar projeto\nCtrl+Shift+S · Salvar como\n"
+                "Ctrl+Z · Desfazer\nCtrl+Shift+Z · Refazer\nCtrl+F · Buscar blocos\nCtrl+Shift+P · "
+                "Buscar comando\n"
                 "Ctrl+, · Abrir ou fechar Sistema\nCtrl+Shift+R · Roteamento por teclado\n\n"
                 "Alt · Acessar os menus; setas navegam e Esc fecha.\n"
                 "Espaço+arraste · Mover pelo projeto\nCtrl+roda · Zoom\n"
@@ -211,7 +237,8 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     audioStatus_ = new AudioStatusPanel(workspace);
     workspaceLayout->addWidget(audioStatus_);
     connect(audioStatus_, &AudioStatusPanel::actionRequested, this, &MainWindow::handleAudioAction);
-    auto* toolbar = new QHBoxLayout;
+    auto* toolbarWidget = new QWidget(workspace);
+    auto* toolbar = new QGridLayout(toolbarWidget);
     toolbar->setContentsMargins(12, 5, 12, 5);
     auto* area = new QWidget(workspace);
     auto* areaLayout = new QHBoxLayout(area);
@@ -224,11 +251,50 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     areaLayout->addWidget(dot);
     areaLayout->addWidget(new QLabel(QStringLiteral("Área de projeto"), area));
     areaLayout->addStretch();
-    toolbar->addWidget(area, 1);
+    toolbar->addWidget(area, 0, 0);
+    auto* history = new QWidget(toolbarWidget);
+    auto* historyLayout = new QHBoxLayout(history);
+    historyLayout->setContentsMargins(0, 0, 0, 0);
+    historyLayout->setSpacing(2);
+    const auto historyButton = [history, historyLayout](QAction* action, const QString& name,
+                                                        const QString& label) {
+        auto* button = new QToolButton(history);
+        button->setObjectName(name);
+        button->setAccessibleName(label);
+        button->setFixedSize(32, 32);
+        button->setIconSize(QSize(16, 16));
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        button->setFocusPolicy(Qt::StrongFocus);
+        button->setStyleSheet(QStringLiteral(
+            "QToolButton { background: transparent; border: 1px solid transparent; "
+            "border-radius: 5px; padding: 0; }"
+            "QToolButton:hover { background: #26313e; border-color: #3d4b5a; }"
+            "QToolButton:pressed { background: #25433e; }"
+            "QToolButton:focus { border: 2px solid #70d9bd; }"
+            "QToolButton:disabled { background: transparent; border-color: transparent; }"));
+        setActionAvailability(button, label);
+        // Share the menu action so busy/history state and shortcuts stay consistent.
+        button->setDefaultAction(action);
+        connect(action, &QAction::changed, button,
+                [button, action] { button->setAccessibleDescription(action->statusTip()); });
+        historyLayout->addWidget(button);
+    };
+    historyButton(undo_, QStringLiteral("canvasUndo"), QStringLiteral("Desfazer"));
+    historyButton(redo_, QStringLiteral("canvasRedo"), QStringLiteral("Refazer"));
+    toolbar->addWidget(history, 0, 1, Qt::AlignCenter);
+    auto* viewControls = new QWidget(toolbarWidget);
+    auto* viewControlsLayout = new QHBoxLayout(viewControls);
+    viewControlsLayout->setContentsMargins(0, 0, 0, 0);
     auto* fit = new QPushButton(QStringLiteral("Enquadrar"), workspace);
     auto* minus = new QPushButton(QStringLiteral("−"), workspace);
     auto* reset = new QPushButton(QStringLiteral("100%"), workspace);
     auto* plus = new QPushButton(QStringLiteral("+"), workspace);
+    minus->setIcon(studioIcon(StudioIcon::Minus));
+    minus->setText({});
+    plus->setIcon(studioIcon(StudioIcon::Plus));
+    plus->setText({});
+    minus->setMinimumSize(32, 32);
+    plus->setMinimumSize(32, 32);
     zoomIn_ = plus;
     zoomOut_ = minus;
     zoomReset_ = reset;
@@ -238,17 +304,21 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     reset->setAccessibleName(QStringLiteral("Restaurar zoom para 100%"));
     reset->setObjectName(QStringLiteral("zoomReset"));
     for (auto* button : {fit, minus, reset, plus})
-        toolbar->addWidget(button);
-    workspaceLayout->addLayout(toolbar);
+        viewControlsLayout->addWidget(button);
+    toolbar->addWidget(viewControls, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
+    // Equal side columns keep history centered independently of the zoom controls' width.
+    const int sideWidth = std::max(area->sizeHint().width(), viewControls->sizeHint().width());
+    for (const int column : {0, 2}) {
+        toolbar->setColumnMinimumWidth(column, sideWidth);
+        toolbar->setColumnStretch(column, 1);
+    }
+    workspaceLayout->addWidget(toolbarWidget);
     scene_ = new GraphScene(session_, this);
     view_ = new GraphView(scene_, workspace);
+    connect(scene_, &GraphScene::addAtRequested, view_, &GraphView::blockDropped);
     emptyGraph_ = new EmptyGraphWidget(view_->viewport());
     workspaceLayout->addWidget(view_, 1);
-    error_ = new QLabel(workspace);
-    error_->setTextFormat(Qt::PlainText);
-    error_->setWordWrap(true);
-    error_->setContentsMargins(14, 8, 14, 8);
-    error_->setStyleSheet(QStringLiteral("background: #482a32; color: #ffdade;"));
+    error_ = new FeedbackBanner(workspace);
     error_->hide();
     workspaceLayout->addWidget(error_);
     auto* footer = new QFrame(workspace);
@@ -256,7 +326,7 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     footer->setMinimumHeight(26);
     footer->setStyleSheet(QStringLiteral(
         "QFrame#projectFooter { background: #151c24; border-top: 1px solid #2b333f; }"
-        "QLabel { background: transparent; color: #8b9bb3; font-size: 9px; border: 0; }"));
+        "QLabel { background: transparent; color: #8b9bb3; font-size: 11px; border: 0; }"));
     auto* footerLayout = new QHBoxLayout(footer);
     footerLayout->setContentsMargins(14, 5, 14, 5);
     footerLayout->setSpacing(12);
@@ -295,7 +365,8 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     auto* routingTitle = new QLabel(QStringLiteral("Roteamento"), routingHeading);
     routingTitle->setProperty("role", QStringLiteral("heading"));
     routingHeadingLayout->addWidget(routingTitle, 1);
-    auto* routingClose = new QPushButton(QStringLiteral("×"), routingHeading);
+    auto* routingClose = new QPushButton(routingHeading);
+    routingClose->setIcon(studioIcon(StudioIcon::Close));
     routingClose->setProperty("role", QStringLiteral("close"));
     routingClose->setFixedSize(28, 28);
     routingClose->setToolTip(QStringLiteral("Fechar roteamento"));
@@ -315,6 +386,7 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     viewMenu->insertAction(inspect, routingAction);
     addAction(routingAction);
     connect(routing, &RoutingPanel::inspectRequested, this, [this](const QString& id) {
+        system_->hide();
         scene_->selectNode(id);
         inspector_->inspect(id);
         inspector_->setSavedPath(projects_->resourcePath(id));
@@ -331,6 +403,14 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     projects_ = new ProjectController(session_, *scene_, *view_, paths_, this);
     system_ = new SystemPanel(session_, *projects_, paths_, central);
     view_->addOverlayWidget(system_);
+    emptyGraph_->watchOverlay(system_);
+    connect(system_, &SystemPanel::shown, inspector_, &QWidget::hide);
+    connect(searchBlocks, &QAction::triggered, library_, &LibraryPanel::focusSearch);
+    connect(projectPanel, &QAction::triggered, system_, &SystemPanel::openProject);
+    connect(applicationPanel, &QAction::triggered, system_, &SystemPanel::openApplication);
+    connect(saveAs_, &QAction::triggered, projects_, &ProjectController::saveAs);
+    connect(undo_, &QAction::triggered, projects_, &ProjectController::undo);
+    connect(redo_, &QAction::triggered, projects_, &ProjectController::redo);
     connect(system_, &SystemPanel::storeRequested, this, &MainWindow::storeRequested);
     connect(system_, &SystemPanel::discardRecoveryRequested, this, &MainWindow::discardRecovery);
     connect(system_, &SystemPanel::error, this, [this](const QString& message) {
@@ -349,9 +429,26 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
                 }
             });
     connect(emptyGraph_, &EmptyGraphWidget::startRequested, this, [this] {
-        if (!projects_->busy())
+        if (!projects_->busy() && session_.settled()) {
+            starterPending_ = true;
             session_.addInitialNodes();
+        }
     });
+    connect(emptyGraph_, &EmptyGraphWidget::sourceRequested, this,
+            [this](const QString& kind, const QString& plugin) {
+                if (projects_->busy())
+                    return;
+                for (const auto& descriptor : session_.catalog().entries()) {
+                    if (descriptor.kind == kind && descriptor.pluginId == plugin) {
+                        starterPending_ = true;
+                        session_.addInitialNodes(descriptor);
+                        return;
+                    }
+                }
+                error_->setText(QStringLiteral(
+                    "A fonte escolhida não está disponível. Confira os plugins instalados."));
+                error_->show();
+            });
     connect(this, &MainWindow::openRequested, this, [this] {
         if (open_->isEnabled())
             projects_->open();
@@ -377,6 +474,18 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
                                     ? QStringLiteral("Projeto sem título")
                                     : QFileInfo(projects_->path()).fileName()) +
                                (projects_->dirty() ? QStringLiteral(" •") : QString()));
+        projectTitle_->setToolTip(projects_->path().isEmpty() ? QStringLiteral("Projeto sem título")
+                                                              : projects_->path());
+        projectState_->setText(
+            projects_->dirty()            ? QStringLiteral("Alterações não salvas")
+            : projects_->path().isEmpty() ? QStringLiteral("Projeto local · ainda não salvo")
+            : projects_->savedAt().isValid()
+                ? QStringLiteral("Salvo às %1")
+                      .arg(projects_->savedAt().toLocalTime().toString(QStringLiteral("HH:mm")))
+                : QStringLiteral("Projeto salvo"));
+        projectState_->setStyleSheet(projects_->dirty()
+                                         ? QStringLiteral("color: #f0d49b; font-size: 11px;")
+                                         : QStringLiteral("color: #aab6c7; font-size: 11px;"));
         recoveryBanner_->setVisible(projects_->recoveryPending());
         updateRecents();
         updateActions();
@@ -397,20 +506,26 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     connect(refreshDevices_, &QAction::triggered, &session_, &SessionController::refreshDevices);
     connect(retryDevices_, &QAction::triggered, this, [this] { projects_->prepareAudio(); });
     connect(virtualOutput_, &QAction::triggered, this, &MainWindow::configureVirtualOutput);
-    connect(&session_, &SessionController::catalogChanged, this,
-            [this] { library_->setCatalog(session_.catalog()); });
+    connect(&session_, &SessionController::catalogChanged, this, [this] {
+        library_->setCatalog(session_.catalog());
+        emptyGraph_->setCatalog(session_.catalog());
+    });
     library_->setCatalog(session_.catalog());
+    emptyGraph_->setCatalog(session_.catalog());
     connect(&session_, &SessionController::changed, this, &MainWindow::updateStatus);
     connect(&session_, &SessionController::devicesChanged, this, &MainWindow::updateStatus);
     connect(&session_, &SessionController::activityChanged, this, [this] {
         updateActions();
         updateZoomControls();
+        arrangeStarter();
     });
     connect(&session_, &SessionController::error, this, [this](const QString& message) {
+        starterPending_ = false;
         error_->setText(message);
         error_->show();
     });
     connect(scene_, &GraphScene::inspectRequested, this, [this](const QString& id) {
+        system_->hide();
         inspector_->inspect(id);
         inspector_->setSavedPath(projects_->resourcePath(id));
     });
@@ -457,6 +572,7 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
                 session_.addNode(kind, plugin);
             });
     connect(inspect, &QAction::triggered, this, [this] {
+        system_->hide();
         for (auto* item : scene_->selectedItems())
             if (const auto* node = dynamic_cast<NodeItem*>(item)) {
                 inspector_->inspect(node->nodeId());
@@ -651,6 +767,49 @@ void MainWindow::configureVirtualOutput() {
     retry->start();
 }
 
+void MainWindow::arrangeStarter() {
+    if (!starterPending_ || !session_.settled() || closing_)
+        return;
+    const auto graph = session_.snapshot().value(QStringLiteral("graph")).toObject();
+    const auto nodes = graph.value(QStringLiteral("nodes")).toArray();
+    if (nodes.size() != 2 || graph.value(QStringLiteral("edges")).toArray().size() != 1)
+        return;
+    QString source, output;
+    for (const auto& value : nodes) {
+        const auto node = value.toObject();
+        const auto id = node.value(QStringLiteral("id")).toString();
+        if (node.value(QStringLiteral("block"))
+                .toObject()
+                .value(QStringLiteral("kind"))
+                .toString() == QStringLiteral("output"))
+            output = id;
+        else
+            source = id;
+    }
+    starterPending_ = false;
+    // Run after inline controls and the regular insertion/reveal callbacks settle.
+    QTimer::singleShot(0, this, [this, source, output] {
+        auto* from = scene_->nodeItem(source);
+        auto* to = scene_->nodeItem(output);
+        if (closing_ || !from || !to)
+            return;
+        const auto available = view_->availableViewportRect();
+        const auto center = view_->mapToScene(available.center());
+        constexpr qreal gap = 64;
+        const qreal height = std::max(from->boundingRect().height(), to->boundingRect().height());
+        const QPointF origin(center.x() - (2.0 * Theme::NodeWidth + gap) / 2,
+                             center.y() - height / 2);
+        scene_->placeNode(source, origin);
+        scene_->placeNode(output, origin + QPointF(Theme::NodeWidth + gap, 0));
+        if (!available.contains(view_->mapFromScene(from->sceneBoundingRect()).boundingRect()) ||
+            !available.contains(view_->mapFromScene(to->sceneBoundingRect()).boundingRect())) {
+            view_->fitNodes();
+            if (view_->transform().m11() > 1)
+                view_->zoomBy(1 / view_->transform().m11());
+        }
+    });
+}
+
 void MainWindow::updateRecents() {
     const auto files = projects_->recents();
     if (recents_->property("files").toStringList() != files || recents_->isEmpty()) {
@@ -738,6 +897,16 @@ void MainWindow::updateActions() {
     setActionAvailability(open_, QStringLiteral("Abrir projeto e preparar o áudio · Ctrl+O"),
                           reason);
     setActionAvailability(save_, QStringLiteral("Salvar projeto · Ctrl+S"), reason);
+    setActionAvailability(
+        saveAs_, QStringLiteral("Salvar uma cópia em outro arquivo · Ctrl+Shift+S"), reason);
+    setActionAvailability(undo_, QStringLiteral("Desfazer a última edição · Ctrl+Z"),
+                          !reason.isEmpty()      ? reason
+                          : projects_->canUndo() ? QString()
+                                                 : QStringLiteral("Não há edição para desfazer."));
+    setActionAvailability(redo_, QStringLiteral("Refazer a edição desfeita · Ctrl+Shift+Z"),
+                          !reason.isEmpty()      ? reason
+                          : projects_->canRedo() ? QString()
+                                                 : QStringLiteral("Não há edição para refazer."));
     setActionAvailability(recents_->menuAction(), QStringLiteral("Abrir um projeto recente"),
                           !reason.isEmpty() ? reason
                           : projects_->recents().isEmpty()
@@ -857,8 +1026,10 @@ void MainWindow::updateStatus() {
                            .value(QStringLiteral("message"))
                            .toString();
     if (!error.isEmpty()) {
-        error_->setText(error);
-        error_->show();
+        if (error != lastSnapshotError_) {
+            error_->setText(error);
+            error_->show();
+        }
     } else if (!lastSnapshotError_.isEmpty() && error_->text() == lastSnapshotError_) {
         error_->clear();
         error_->hide();

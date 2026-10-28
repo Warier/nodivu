@@ -8,7 +8,7 @@ WorkerControls::WorkerControls(bool compact, QWidget* parent) : QWidget(parent) 
     setObjectName(QStringLiteral("workerControls"));
     setStyleSheet(
         QStringLiteral(
-            "QLabel { color: #8b95a7; font-size: 10px; background: transparent; }"
+            "QLabel { color: #8b95a7; font-size: 11px; background: transparent; }"
             "QPushButton { color: #dbe3ef; background: #262e3b; border: 1px solid #384353; "
             "border-radius: 7px; font-size: %1px; padding: %2px; }"
             "QPushButton:enabled:hover { background: #354153; border-color: #65748a; }"

@@ -7,6 +7,8 @@ class QTreeWidget;
 class QPushButton;
 class QLabel;
 class QProgressBar;
+class QToolButton;
+class QAction;
 
 namespace nodivu {
 class ReadmeView;
@@ -20,6 +22,10 @@ class StoreWindow final : public QDialog {
     void renderProgress();
     void selectedAction();
     void updateSelection();
+    void synchronizeSecondaryActions();
+    QList<QPair<QAction*, QPushButton*>> secondary_;
+    QToolButton* more_ = nullptr;
+    QToolButton* errorDetails_ = nullptr;
     StoreController& controller_;
     QTabBar* tabs_ = nullptr;
     QLineEdit* search_ = nullptr;

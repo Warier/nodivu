@@ -8,6 +8,8 @@ class QPushButton;
 class QProgressBar;
 class QScrollArea;
 class QVBoxLayout;
+class QTabBar;
+class QStackedWidget;
 namespace nodivu {
 class ProjectController;
 class UpdatePanel;
@@ -17,8 +19,11 @@ class SystemPanel final : public QFrame {
     SystemPanel(SessionController& session, ProjectController& projects, AppPaths paths,
                 QWidget* parent);
     void openMonitor();
+    void openProject();
+    void openApplication();
     void synchronize();
   signals:
+    void shown();
     void storeRequested();
     void discardRecoveryRequested();
     void installRequested(const QString& file, const QString& hash);
@@ -38,6 +43,8 @@ class SystemPanel final : public QFrame {
     ProjectController& projects_;
     AppPaths paths_;
     QScrollArea* scroll_ = nullptr;
+    QTabBar* tabs_ = nullptr;
+    QStackedWidget* pages_ = nullptr;
     QWidget* monitorSection_ = nullptr;
     QComboBox* device_ = nullptr;
     QPushButton* monitor_ = nullptr;

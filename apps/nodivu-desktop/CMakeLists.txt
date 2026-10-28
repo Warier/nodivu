@@ -62,6 +62,8 @@ add_library(nodivu_frontend_ui STATIC
     src/contracts/playback_state.hpp
     src/contracts/monitor_state.cpp
     src/contracts/monitor_state.hpp
+    src/contracts/signal_state.cpp
+    src/contracts/signal_state.hpp
     src/contracts/audio_state.cpp
     src/contracts/audio_state.hpp
     src/contracts/virtual_cable.cpp
@@ -128,6 +130,8 @@ add_library(nodivu_frontend_ui STATIC
     src/features/library/library_block_button.hpp
     src/features/inspector/inspector_panel.cpp
     src/features/inspector/inspector_panel.hpp
+    src/ui/theme/studio_icons.cpp
+    src/ui/theme/studio_icons.hpp
     src/ui/theme/theme.cpp
     src/ui/theme/theme.hpp
     src/features/workspace/main_window.cpp
