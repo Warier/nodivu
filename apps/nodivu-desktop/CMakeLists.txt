@@ -101,6 +101,11 @@ add_library(nodivu_frontend_ui STATIC
     src/features/workspace/session_controller.cpp
     src/features/workspace/session_controller.hpp
     src/features/graph/graph_scene.cpp
+    src/features/graph/graph_editing.cpp
+    src/features/graph/mini_map.cpp
+    src/features/graph/mini_map.hpp
+    src/features/workspace/workspace_tools.cpp
+    src/features/workspace/workspace_tools.hpp
     src/features/graph/graph_scene.hpp
     src/features/graph/node_content.cpp
     src/features/graph/node_content.hpp

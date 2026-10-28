@@ -74,6 +74,7 @@ ProjectController::ProjectController(SessionController& session, GraphScene& sce
         }
     });
     connect(&scene_, &GraphScene::positionsEdited, this, &ProjectController::updateDirty);
+    connect(&scene_, &GraphScene::presentationEdited, this, &ProjectController::updateDirty);
     connect(&view_, &GraphView::cameraEdited, this, &ProjectController::updateDirty);
     const auto recentFile = QDir(paths_.profile).filePath(QStringLiteral("recent-projects.json"));
     if (QFileInfo::exists(recentFile))
@@ -194,15 +195,22 @@ QJsonObject ProjectController::document() const {
             {QStringLiteral("resources"), resources},
             {QStringLiteral("captures"), captures}};
 }
+QJsonObject ProjectController::historyDocument() const {
+    auto result = document();
+    result.insert(QStringLiteral("_ui"), scene_.presentation());
+    return result;
+}
+QByteArray ProjectController::documentStamp() const {
+    return QJsonDocument(historyDocument()).toJson(QJsonDocument::Compact);
+}
 bool ProjectController::dirty() const {
-    return !savedStamp_.isEmpty() &&
-           QJsonDocument(document()).toJson(QJsonDocument::Compact) != savedStamp_;
+    return !savedStamp_.isEmpty() && documentStamp() != savedStamp_;
 }
 void ProjectController::updateDirty() {
     if (restoring_ || !session_.online())
         return;
     if (savedStamp_.isEmpty())
-        savedStamp_ = QJsonDocument(document()).toJson(QJsonDocument::Compact);
+        savedStamp_ = documentStamp();
     queueHistory();
     emit stateChanged();
 }
@@ -216,17 +224,21 @@ bool ProjectController::canRedo() const {
 void ProjectController::resetHistory() {
     historyTimer_.stop();
     pendingHistory_ = {};
-    history_ = {editDocument(document())};
+    history_ = {editDocument(historyDocument())};
     historyIndex_ = 0;
 }
 void ProjectController::queueHistory() {
     if (historyApplying_ || restoring_ || busy() || resetHistoryAfterOpen_ || !session_.online())
         return;
-    const auto next = editDocument(document());
+    const auto next = editDocument(historyDocument());
     if (historyIndex_ < 0) {
         resetHistory();
         return;
     }
+    // Preserve separate topology steps when a quick remove returns to the state
+    // before a pending insertion. Slider changes and drags still coalesce.
+    if (!pendingHistory_.isEmpty() && topology(next) != topology(pendingHistory_))
+        commitHistory();
     if (editKey(next) == editKey(history_[historyIndex_])) {
         history_[historyIndex_] = next;
         pendingHistory_ = {};
@@ -235,10 +247,6 @@ void ProjectController::queueHistory() {
     }
     if (next == pendingHistory_)
         return;
-    // Consecutive topology operations are distinct; drags and slider changes
-    // coalesce until idle, avoiding a history entry for every pixel/sample.
-    if (!pendingHistory_.isEmpty() && topology(next) != topology(pendingHistory_))
-        commitHistory();
     pendingHistory_ = next;
     historyTimer_.start();
 }
@@ -343,6 +351,7 @@ void ProjectController::restoreHistory(int index) {
             captures_.insert(entry.toObject().value(QStringLiteral("node_id")).toString(),
                              entry.toObject().value(QStringLiteral("selection")).toObject());
         scene_.restorePositions(target.value(QStringLiteral("positions")).toArray());
+        scene_.restorePresentation(target.value(QStringLiteral("_ui")).toObject());
         restoreHistoryResources(index, commands, 0);
     };
     if (before.value(QStringLiteral("graph")) == target.value(QStringLiteral("graph"))) {
@@ -360,7 +369,7 @@ void ProjectController::restoreHistoryResources(int historyIndex, QJsonArray com
                                                 qsizetype index) {
     if (index >= commands.size()) {
         historyIndex_ = historyIndex;
-        history_[historyIndex_] = editDocument(document());
+        history_[historyIndex_] = editDocument(historyDocument());
         historyApplying_ = restoring_ = operation_ = false;
         emit stateChanged();
         return;
@@ -406,7 +415,9 @@ void ProjectController::protectAfterFault() {
     recoveryPending_ = true;
     const auto project = document();
     const auto file = recoveryFile();
-    io([file, project] { return ProjectRepository::write(file, project); },
+    const auto presentation = scene_.presentation();
+    io([file, project,
+        presentation] { return ProjectRepository::writeProject(file, project, {presentation}); },
        [this](const FileResult& result) {
            recordRecoveryResult(result);
            if (!result.ok())
@@ -432,38 +443,43 @@ void ProjectController::save(const QString& requestedFile) {
         return;
     operation_ = true;
     const auto contents = QJsonDocument(document()).toJson(QJsonDocument::Compact);
-    session_.command(QStringLiteral("project.validate"),
-                     {{QStringLiteral("contents"), QString::fromUtf8(contents)},
-                      {QStringLiteral("expected_revision"),
-                       session_.snapshot().value(QStringLiteral("revision"))}},
-                     [this, file, contents](const BackendReply& reply) {
-                         if (!reply.ok) {
-                             operation_ = false;
-                             return;
-                         }
-                         const auto project = ProjectRepository::resolveResources(
-                             reply.result.value(QStringLiteral("project")).toObject(), file, false);
-                         io([file, project] { return ProjectRepository::write(file, project); },
-                            [this, file, contents](const FileResult& result) {
-                                operation_ = false;
-                                if (!result.ok()) {
-                                    emit error(result.error);
-                                    return;
-                                }
-                                path_ = file;
-                                savedAt_ = result.writtenAt;
-                                savedStamp_ = contents;
-                                if (!dirty() && !recoveryPending_) {
-                                    const auto removed =
-                                        ProjectRepository::removeRecovery(recoveryFile());
-                                    recordRecoveryResult(removed);
-                                    if (!removed.ok())
-                                        emit error(removed.error);
-                                }
-                                remember(file);
-                                emit stateChanged();
-                            });
-                     });
+    const auto stamp = documentStamp();
+    const auto presentation = scene_.presentation();
+    session_.command(
+        QStringLiteral("project.validate"),
+        {{QStringLiteral("contents"), QString::fromUtf8(contents)},
+         {QStringLiteral("expected_revision"),
+          session_.snapshot().value(QStringLiteral("revision"))}},
+        [this, file, stamp, presentation](const BackendReply& reply) {
+            if (!reply.ok) {
+                operation_ = false;
+                return;
+            }
+            const auto project = ProjectRepository::resolveResources(
+                reply.result.value(QStringLiteral("project")).toObject(), file, false);
+            io(
+                [file, project, presentation] {
+                    return ProjectRepository::writeProject(file, project, {presentation});
+                },
+                [this, file, stamp](const FileResult& result) {
+                    operation_ = false;
+                    if (!result.ok()) {
+                        emit error(result.error);
+                        return;
+                    }
+                    path_ = file;
+                    savedAt_ = result.writtenAt;
+                    savedStamp_ = stamp;
+                    if (!dirty() && !recoveryPending_) {
+                        const auto removed = ProjectRepository::removeRecovery(recoveryFile());
+                        recordRecoveryResult(removed);
+                        if (!removed.ok())
+                            emit error(removed.error);
+                    }
+                    remember(file);
+                    emit stateChanged();
+                });
+        });
 }
 void ProjectController::saveAs() {
     if (busy() || !session_.settled())
@@ -489,24 +505,26 @@ void ProjectController::open(const QString& requestedFile) {
         return;
     operation_ = true;
     emit stateChanged();
-    io([file] { return ProjectRepository::read(file); },
+    io([file] { return ProjectRepository::readProject(file); },
        [this, file](const FileResult& result) {
            if (!result.ok()) {
                operation_ = false;
                emit error(result.error);
                return;
            }
-           openContents(result.contents, file, false);
+           if (!result.warning.isEmpty())
+               emit error(result.warning);
+           openContents(result.contents, file, false, result.presentation);
        });
 }
-void ProjectController::openContents(const QByteArray& contents, const QString& file,
-                                     bool recovery) {
+void ProjectController::openContents(const QByteArray& contents, const QString& file, bool recovery,
+                                     const QJsonObject& presentation) {
     session_.command(
         QStringLiteral("project.validate"),
         {{QStringLiteral("contents"), QString::fromUtf8(contents)},
          {QStringLiteral("expected_revision"),
           session_.snapshot().value(QStringLiteral("revision"))}},
-        [this, file, recovery](const BackendReply& validated) {
+        [this, file, recovery, presentation](const BackendReply& validated) {
             if (!validated.ok) {
                 operation_ = false;
                 return;
@@ -519,7 +537,7 @@ void ProjectController::openContents(const QByteArray& contents, const QString& 
                   QString::fromUtf8(QJsonDocument(project).toJson(QJsonDocument::Compact))},
                  {QStringLiteral("expected_revision"),
                   session_.snapshot().value(QStringLiteral("revision"))}},
-                [this, project, file, recovery](const BackendReply& reply) {
+                [this, project, file, recovery, presentation](const BackendReply& reply) {
                     if (!reply.ok) {
                         operation_ = false;
                         return;
@@ -541,6 +559,7 @@ void ProjectController::openContents(const QByteArray& contents, const QString& 
                     session_.restoreSnapshot(
                         reply.result.value(QStringLiteral("snapshot")).toObject());
                     scene_.restorePositions(project.value(QStringLiteral("positions")).toArray());
+                    scene_.restorePresentation(presentation);
                     view_.restoreCamera(project.value(QStringLiteral("camera")).toObject());
                     path_ = recovery ? QString() : file;
                     savedAt_ = recovery ? QDateTime() : QFileInfo(file).lastModified();
@@ -553,9 +572,7 @@ void ProjectController::openContents(const QByteArray& contents, const QString& 
                         if (!removed.ok())
                             emit error(removed.error);
                     }
-                    savedStamp_ = recovery
-                                      ? QByteArray("unsaved-recovery")
-                                      : QJsonDocument(document()).toJson(QJsonDocument::Compact);
+                    savedStamp_ = recovery ? QByteArray("unsaved-recovery") : documentStamp();
                     restoring_ = false;
                     if (!recovery)
                         remember(file);
@@ -656,28 +673,34 @@ void ProjectController::checkpoint() {
         return;
     const auto project = document();
     const auto contents = QJsonDocument(project).toJson(QJsonDocument::Compact);
-    if (contents == recoveryStamp_)
+    const auto stamp = documentStamp();
+    const auto presentation = scene_.presentation();
+    if (stamp == recoveryStamp_)
         return;
     operation_ = true;
     session_.command(QStringLiteral("project.validate"),
                      {{QStringLiteral("contents"), QString::fromUtf8(contents)},
                       {QStringLiteral("expected_revision"),
                        session_.snapshot().value(QStringLiteral("revision"))}},
-                     [this, contents, project](const BackendReply& reply) {
+                     [this, stamp, project, presentation](const BackendReply& reply) {
                          if (!reply.ok) {
                              operation_ = false;
                              return;
                          }
                          const auto file = recoveryFile();
-                         io([file, project] { return ProjectRepository::write(file, project); },
-                            [this, contents](const FileResult& result) {
-                                operation_ = false;
-                                recordRecoveryResult(result);
-                                if (!result.ok())
-                                    emit error(result.error);
-                                else
-                                    recoveryStamp_ = contents;
-                            });
+                         io(
+                             [file, project, presentation] {
+                                 return ProjectRepository::writeProject(file, project,
+                                                                        {presentation});
+                             },
+                             [this, stamp](const FileResult& result) {
+                                 operation_ = false;
+                                 recordRecoveryResult(result);
+                                 if (!result.ok())
+                                     emit error(result.error);
+                                 else
+                                     recoveryStamp_ = stamp;
+                             });
                      });
 }
 void ProjectController::restoreRecovery() {
@@ -685,11 +708,13 @@ void ProjectController::restoreRecovery() {
         return;
     operation_ = true;
     const auto file = recoveryFile();
-    io([file] { return ProjectRepository::read(file); },
+    io([file] { return ProjectRepository::readProject(file); },
        [this, file](const FileResult& result) {
-           if (result.ok())
-               openContents(result.contents, file, true);
-           else {
+           if (result.ok()) {
+               if (!result.warning.isEmpty())
+                   emit error(result.warning);
+               openContents(result.contents, file, true, result.presentation);
+           } else {
                operation_ = false;
                recoveryError_ =
                    QStringLiteral("Não foi possível ler a cópia de recuperação: ") + result.error;

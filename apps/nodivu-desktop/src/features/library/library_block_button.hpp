@@ -2,6 +2,7 @@
 
 #include "contracts/node_descriptor.hpp"
 #include <QPushButton>
+#include <QTextLayout>
 
 namespace nodivu {
 class LibraryBlockButton final : public QPushButton {
@@ -14,6 +15,8 @@ class LibraryBlockButton final : public QPushButton {
 
   protected:
     void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void changeEvent(QEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
@@ -21,6 +24,13 @@ class LibraryBlockButton final : public QPushButton {
 
   private:
     NodeDescriptor descriptor_;
+    void updateTextLayout(int width);
+    QTextLayout titleLayout_;
+    QTextLayout subtitleLayout_;
+    qreal titleHeight_ = 0;
+    qreal subtitleHeight_ = 0;
+    qreal labelLeft_ = 54;
+    bool narrow_ = false;
     QPoint pressPosition_;
     bool compact_ = false;
     bool dragged_ = false;

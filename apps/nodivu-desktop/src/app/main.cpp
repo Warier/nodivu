@@ -11,6 +11,7 @@
 #include <QElapsedTimer>
 #include <QMessageBox>
 #include <QProcess>
+#include <QSettings>
 #include <QTemporaryDir>
 #ifdef Q_OS_WIN
 #include "platform/windows/native_desktop.hpp"
@@ -81,6 +82,41 @@ int main(int argc, char* argv[]) {
         }
     }
 #endif
+    // Qt's scale factor must be set before QApplication. Re-enter once, before
+    // acquiring the profile or starting audio, to apply a saved UI preference.
+    if (!smoke) {
+        QSettings workspace(QDir(paths.profile).filePath(QStringLiteral("workspace.ini")),
+                            QSettings::IniFormat);
+        int scale = workspace.value(QStringLiteral("scale"), 100).toInt();
+        if (scale != 100 && scale != 125 && scale != 150 && scale != 175 && scale != 200)
+            scale = 100;
+        const auto applied = qEnvironmentVariable("NODIVU_UI_SCALE_APPLIED");
+        if (applied != QString::number(scale) && (scale != 100 || !applied.isEmpty())) {
+            auto environment = QProcessEnvironment::systemEnvironment();
+            bool valid = false;
+            double baseline = environment
+                                  .value(QStringLiteral("NODIVU_BASE_QT_SCALE"),
+                                         environment.value(QStringLiteral("QT_SCALE_FACTOR"),
+                                                           QStringLiteral("1")))
+                                  .toDouble(&valid);
+            if (!valid || baseline <= 0 || baseline > 8)
+                baseline = 1;
+            environment.insert(QStringLiteral("NODIVU_BASE_QT_SCALE"), QString::number(baseline));
+            environment.insert(QStringLiteral("NODIVU_UI_SCALE_APPLIED"), QString::number(scale));
+            environment.insert(QStringLiteral("QT_SCALE_FACTOR"),
+                               QString::number(baseline * scale / 100.0));
+            QProcess restart;
+            restart.setProgram(QCoreApplication::applicationFilePath());
+            restart.setArguments(QCoreApplication::arguments().mid(1));
+            restart.setProcessEnvironment(environment);
+            if (restart.startDetached())
+                return 0;
+            QMessageBox::warning(nullptr, QStringLiteral("Nodivu"),
+                                 QStringLiteral("Não foi possível aplicar a escala da interface. "
+                                                "Tente abrir o aplicativo novamente."));
+            return 1;
+        }
+    }
     nodivu::SingleInstance instance(paths.profile);
     if (!instance.acquire()) {
         if (!instance.error().isEmpty())
@@ -110,7 +146,7 @@ int main(int argc, char* argv[]) {
     });
     if (installationCheck)
         window.setAttribute(Qt::WA_DontShowOnScreen);
-    if (smoke)
+    if (smoke || window.property("workspaceRestored").toBool())
         window.show();
     else
         window.showMaximized();

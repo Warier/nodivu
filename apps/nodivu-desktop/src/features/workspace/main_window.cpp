@@ -13,6 +13,7 @@
 #include "features/updates/update_window.hpp"
 #include "features/workspace/audio_status_panel.hpp"
 #include "features/workspace/system_panel.hpp"
+#include "features/workspace/workspace_tools.hpp"
 #include "platform/profile_backup.hpp"
 #include "ui/controls/action_availability.hpp"
 #include "ui/controls/command_palette.hpp"
@@ -39,6 +40,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScreen>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTimer>
@@ -54,6 +56,11 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     setWindowTitle(QStringLiteral("Nodivu — Estúdio"));
     resize(1440, 900);
     setMinimumSize(960, 650);
+    if (const auto* screen = QGuiApplication::primaryScreen()) {
+        const auto available = screen->availableGeometry().size();
+        setMinimumSize(std::min(960, available.width() - 24),
+                       std::min(650, available.height() - 48));
+    }
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -209,13 +216,18 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
                 "Ctrl+, · Abrir ou fechar Sistema\nCtrl+Shift+R · Roteamento por teclado\n\n"
                 "Alt · Acessar os menus; setas navegam e Esc fecha.\n"
                 "Espaço+arraste · Mover pelo projeto\nCtrl+roda · Zoom\n"
+                "Ctrl+clique no cabeçalho ou Shift+arraste no fundo · Selecionar vários blocos\n"
                 "Shift+roda · Mover para os lados\n"
-                "Botão direito em um fio · Opções da conexão"));
+                "Conectar · Arraste de uma saída (direita) até uma entrada (esquerda)\n"
+                "Botão direito em um fio · Opções da conexão\n\n"
+                "Ganho ajusta o volume; bypass mantém a conexão e ignora o efeito.\n"
+                "Ambos podem ser ajustados durante a reprodução."));
     });
     connect(viewMenu, &QMenu::aboutToShow, this, &MainWindow::updateActions);
     layout->addWidget(menus);
 
     auto* splitter = new QSplitter(Qt::Horizontal, central);
+    splitter->setObjectName(QStringLiteral("workspaceSplitter"));
     splitter->setHandleWidth(4);
     splitter->setStyleSheet(QStringLiteral("QSplitter::handle { background: #242d37; }"
                                            "QSplitter::handle:hover { background: #70d9bd; }"));
@@ -330,13 +342,44 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     auto* footerLayout = new QHBoxLayout(footer);
     footerLayout->setContentsMargins(14, 5, 14, 5);
     footerLayout->setSpacing(12);
-    status_ =
-        new QLabel(QStringLiteral("Arraste o fundo para navegar · Ctrl + roda: zoom · Shift + "
-                                  "roda: mover para os lados · Botão direito no fio: opções"),
-                   footer);
+    const QStringList canvasHints{
+        QStringLiteral("Conectar blocos: arraste de uma saída até uma entrada · "
+                       "Botão direito no fio: opções"),
+        QStringLiteral("Navegar: arraste o fundo ou use Espaço+arraste · Zoom: Ctrl+roda · "
+                       "Mover para os lados: Shift+roda"),
+        QStringLiteral("Selecionar vários: Ctrl+clique nos cabeçalhos ou Shift+arraste no fundo"),
+        QStringLiteral("Áudio: ajuste o ganho ou ative bypass para ignorar o efeito, "
+                       "sem parar a reprodução")};
+    status_ = new QLabel(canvasHints.first(), footer);
     status_->setObjectName(QStringLiteral("connectionHint"));
     status_->setWordWrap(true);
-    status_->setToolTip(QStringLiteral("Botão direito no fio: opções"));
+    // Reserve two lines so cycling tips does not resize the canvas in narrow windows.
+    status_->setMinimumHeight(status_->fontMetrics().lineSpacing() * 2);
+    status_->setAccessibleName(QStringLiteral("Dicas do canvas"));
+    const auto canvasHelp = QStringLiteral(
+        "Conectar: arraste de uma saída, à direita do bloco, até uma entrada, à esquerda.\n"
+        "Botão direito no fio: opções da conexão.\n\n"
+        "Navegar: arraste o fundo ou use Espaço+arraste.\n"
+        "Selecionar vários: Ctrl+clique no cabeçalho ou Shift+arraste no fundo.\n"
+        "Zoom: Ctrl+roda. Mover para os lados: Shift+roda.\n\n"
+        "Ganho ajusta o volume; bypass mantém a conexão e ignora o efeito.\n"
+        "Ambos podem ser ajustados durante a reprodução.\n"
+        "As dicas alternam a cada 8 segundos. Passe o mouse para pausar.\n"
+        "Consulte Ajuda → Atalhos e navegação para ver estas orientações.");
+    status_->setToolTip(canvasHelp);
+    status_->setAccessibleDescription(canvasHelp);
+    canvasHintTimer_ = new QTimer(this);
+    canvasHintTimer_->setObjectName(QStringLiteral("canvasHintTimer"));
+    canvasHintTimer_->setInterval(8000);
+    connect(canvasHintTimer_, &QTimer::timeout, this, [this, canvasHints, index = 0]() mutable {
+        // Keep reading and canvas gestures uninterrupted; inactive windows retain their tip.
+        if (!isActiveWindow() || !status_->isVisible() || status_->underMouse() ||
+            QGuiApplication::mouseButtons() != Qt::NoButton)
+            return;
+        index = (index + 1) % canvasHints.size();
+        status_->setText(canvasHints.at(index));
+    });
+    status_->installEventFilter(this);
     revision_ = new QLabel(QStringLiteral("Revisão 0"), footer);
     revision_->setObjectName(QStringLiteral("projectRevision"));
     footerLayout->addWidget(status_, 1);
@@ -344,7 +387,7 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     workspaceLayout->addWidget(footer);
     splitter->addWidget(library_);
     splitter->addWidget(workspace);
-    splitter->setCollapsible(0, false);
+    splitter->setChildrenCollapsible(false);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({Theme::LibraryWidth, 1200});
@@ -497,8 +540,19 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     connect(discard, &QPushButton::clicked, this, &MainWindow::discardRecovery);
     recoveryBanner_->setVisible(projects_->recoveryPending());
 
-    connect(library_, &LibraryPanel::widthRequested, this, [splitter](int width) {
-        splitter->setSizes({width, splitter->width() - splitter->handleWidth() - width});
+    const auto resizeLibrary = [splitter, library = library_](int width) {
+        const int desired = std::clamp(width, library->minimumWidth(), library->maximumWidth());
+        const int available = splitter->contentsRect().width() - splitter->handleWidth();
+        splitter->setSizes({desired, std::max(1, available - desired)});
+    };
+    connect(library_, &LibraryPanel::widthRequested, this, [splitter, resizeLibrary](int width) {
+        if (splitter->isVisible()) {
+            resizeLibrary(width);
+            return;
+        }
+        // Saved widths can arrive while this splitter still has its temporary
+        // construction geometry. Apply after show/layout, never collapse canvas.
+        QTimer::singleShot(0, splitter, [resizeLibrary, width] { resizeLibrary(width); });
     });
     connect(library_, &LibraryPanel::virtualOutputRequested, this,
             &MainWindow::configureVirtualOutput);
@@ -636,6 +690,16 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
         else
             updateStatus();
     });
+    workspaceTools_ = new WorkspaceTools(*this, *scene_, *view_, *library_, *projects_, paths_);
+    connect(workspaceTools_, &WorkspaceTools::message, this, [this](const QString& text) {
+        error_->setText(text);
+        error_->show();
+    });
+    connect(scene_, &GraphScene::presentationEdited, this, [this, routing] {
+        const auto names = scene_->presentation().value(QStringLiteral("names")).toObject();
+        routing->setDisplayNames(names);
+        inspector_->setDisplayNames(names);
+    });
     if (!QDir().mkpath(paths.profile)) {
         error_->setText(QStringLiteral("Não foi possível criar o perfil."));
         error_->show();
@@ -692,6 +756,8 @@ MainWindow::~MainWindow() {
     const auto docks = findChildren<QDockWidget*>();
     for (auto* dock : docks)
         delete dock;
+    delete workspaceTools_;
+    workspaceTools_ = nullptr;
     delete projects_;
     projects_ = nullptr;
     delete takeCentralWidget();
@@ -1160,6 +1226,17 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     backend_.shutdown();
     event->ignore();
 }
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == status_ && canvasHintTimer_) {
+        if (event->type() == QEvent::Enter || event->type() == QEvent::Hide)
+            canvasHintTimer_->stop();
+        else if ((event->type() == QEvent::Leave || event->type() == QEvent::Show) &&
+                 status_->isVisible() && !status_->underMouse())
+            canvasHintTimer_->start();
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
 void MainWindow::changeEvent(QEvent* event) {
     if (event->type() == QEvent::WindowStateChange)
         session_.setMinimized(isMinimized());

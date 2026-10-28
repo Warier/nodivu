@@ -12,6 +12,7 @@ class QMenu;
 class QAction;
 class QPushButton;
 class QDockWidget;
+class QTimer;
 
 namespace nodivu {
 class LibraryPanel;
@@ -24,6 +25,7 @@ class StoreController;
 class SystemPanel;
 class AudioStatusPanel;
 class FeedbackBanner;
+class WorkspaceTools;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
   public:
@@ -46,6 +48,7 @@ class MainWindow final : public QMainWindow {
   protected:
     void closeEvent(QCloseEvent* event) override;
     void changeEvent(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
   private:
     void updateStatus();
@@ -73,9 +76,11 @@ class MainWindow final : public QMainWindow {
     QLabel* projectTitle_ = nullptr;
     QMenu* recents_ = nullptr;
     ProjectController* projects_ = nullptr;
+    WorkspaceTools* workspaceTools_ = nullptr;
     QWidget* recoveryBanner_ = nullptr;
     StoreController* store_ = nullptr;
     QLabel* status_ = nullptr;
+    QTimer* canvasHintTimer_ = nullptr;
     QPushButton* mute_ = nullptr;
     QPushButton* zoomIn_ = nullptr;
     QPushButton* zoomOut_ = nullptr;

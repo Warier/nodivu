@@ -8,7 +8,10 @@
 #include <QStyleFactory>
 
 namespace nodivu {
-void Theme::apply(QApplication& application) {
+bool Theme::highContrast() {
+    return QApplication::palette().color(QPalette::Window) == QColor(6, 9, 13);
+}
+void Theme::apply(QApplication& application, bool contrast) {
     QIcon icon;
     for (const int size : {16, 24, 32, 48, 64, 128, 256})
         icon.addPixmap(QPixmap::fromImage(brandImage(size)));
@@ -16,14 +19,16 @@ void Theme::apply(QApplication& application) {
     application.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     application.setFont(QFont(QStringLiteral("Segoe UI"), 10));
     auto palette = application.palette();
-    palette.setColor(QPalette::Window, background());
-    palette.setColor(QPalette::WindowText, text());
+    palette.setColor(QPalette::Window, contrast ? QColor(6, 9, 13) : QColor(16, 21, 27));
+    palette.setColor(QPalette::WindowText,
+                     contrast ? QColor(255, 255, 255) : QColor(219, 227, 239));
     palette.setColor(QPalette::Base, QColor(18, 25, 36));
     palette.setColor(QPalette::AlternateBase, panel());
-    palette.setColor(QPalette::Text, text());
+    palette.setColor(QPalette::Text, contrast ? QColor(255, 255, 255) : QColor(219, 227, 239));
     palette.setColor(QPalette::PlaceholderText, QColor(149, 161, 178));
-    palette.setColor(QPalette::Button, panel());
-    palette.setColor(QPalette::ButtonText, text());
+    palette.setColor(QPalette::Button, contrast ? QColor(12, 17, 24) : QColor(28, 37, 48));
+    palette.setColor(QPalette::ButtonText,
+                     contrast ? QColor(255, 255, 255) : QColor(219, 227, 239));
     palette.setColor(QPalette::Highlight, QColor(38, 79, 69));
     palette.setColor(QPalette::HighlightedText, text());
     palette.setColor(QPalette::Disabled, QPalette::Text, muted());
@@ -54,5 +59,18 @@ void Theme::apply(QApplication& application) {
         "QMenu::item:disabled { color: #748195; }"
         "QMenu::separator { height: 1px; background: #344151; margin: 5px 8px; }"
         "QToolTip { color: #dbe3ef; background: #202a35; border: 1px solid #516373; }"));
+    if (contrast)
+        application.setStyleSheet(
+            application.styleSheet() +
+            QStringLiteral(
+                "QLabel, QCheckBox, QGroupBox { color: #ffffff; }"
+                "QPushButton, QToolButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, "
+                "QListWidget, QTreeWidget { color: #ffffff; background: #0c1118; border: 1px solid "
+                "#9baabb; }"
+                "QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, "
+                "QSlider:focus, QListWidget:focus, QTreeWidget:focus { border: 2px solid #70d9bd; }"
+                "QPushButton:disabled, QToolButton:disabled { color: #8794a4; border-color: "
+                "#465363; }"
+                "QToolTip { color: #ffffff; background: #080c12; border: 1px solid #cad7e7; }"));
 }
 } // namespace nodivu

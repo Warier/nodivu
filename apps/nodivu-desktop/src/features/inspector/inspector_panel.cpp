@@ -280,6 +280,14 @@ void InspectorPanel::focusField(const QString& key) {
         field->setFocus(Qt::OtherFocusReason);
     }
 }
+void InspectorPanel::setDisplayNames(const QJsonObject& names) {
+    names_ = names;
+    title_->setTextFormat(Qt::PlainText);
+    if (!selectedId_.isEmpty())
+        title_->setText(
+            names_.value(selectedId_)
+                .toString(session_.catalog().describe(session_.node(selectedId_)).title));
+}
 void InspectorPanel::rebuild() {
     fields_.clear();
     values_.clear();
@@ -298,7 +306,7 @@ void InspectorPanel::rebuild() {
     layout->setContentsMargins(14, 14, 14, 14);
     scroll_->setWidget(content_);
     const auto descriptor = session_.catalog().describe(session_.node(selectedId_));
-    title_->setText(descriptor.title);
+    title_->setText(names_.value(selectedId_).toString(descriptor.title));
     subtitle_->setText(descriptor.subtitle);
     QStringList pageNames;
     for (const auto& field : descriptor.controls) {

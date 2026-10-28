@@ -60,7 +60,8 @@ class ProjectController final : public QObject {
   private:
     void io(std::function<FileResult()> work, std::function<void(const FileResult&)> completion);
     void checkpoint();
-    void openContents(const QByteArray& contents, const QString& file, bool recovery);
+    void openContents(const QByteArray& contents, const QString& file, bool recovery,
+                      const QJsonObject& presentation = {});
     void prepareResources(QJsonArray resources, qsizetype index = 0);
     void remember(const QString& file);
     void updateDirty();
@@ -68,6 +69,8 @@ class ProjectController final : public QObject {
     void waitToPrepareAudio();
     void retryPreparedAudio();
     void recordRecoveryResult(const FileResult& result);
+    QJsonObject historyDocument() const;
+    QByteArray documentStamp() const;
     void queueHistory();
     void commitHistory();
     void resetHistory();

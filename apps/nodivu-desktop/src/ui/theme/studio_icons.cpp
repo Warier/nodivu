@@ -3,6 +3,7 @@
 #include <QIconEngine>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPolygonF>
 namespace nodivu {
 StudioIcon blockIcon(const NodeDescriptor& d) {
     if (d.missing)
@@ -197,6 +198,17 @@ void paintStudioIcon(QPainter& p, StudioIcon icon, const QRectF& rect, const QCo
         line(3, 7, 3, 4);
         line(3, 4, 10, 4);
         line(10, 4, 13, 7);
+        break;
+    case StudioIcon::Star: {
+        const QPolygonF star{QPointF(12, 3),  QPointF(15, 9),  QPointF(22, 10), QPointF(17, 15),
+                             QPointF(18, 22), QPointF(12, 19), QPointF(6, 22),  QPointF(7, 15),
+                             QPointF(2, 10),  QPointF(9, 9)};
+        p.drawPolygon(star);
+        break;
+    }
+    case StudioIcon::ChevronRight:
+        line(9, 6, 15, 12);
+        line(15, 12, 9, 18);
         break;
     case StudioIcon::Warning: {
         QPainterPath path;

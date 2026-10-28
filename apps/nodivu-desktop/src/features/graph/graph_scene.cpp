@@ -19,6 +19,7 @@
 #include <QPainter>
 #include <QPainterPathStroker>
 #include <QStyleOptionGraphicsItem>
+#include <QUuid>
 #include <algorithm>
 #include <cmath>
 
@@ -66,6 +67,7 @@ class ConnectionItem final : public QGraphicsPathItem {
         setFlags(ItemIsSelectable | ItemIsFocusable);
         setZValue(-1);
         setPen(QPen(QColor(112, 217, 189, 170), 2.3));
+        setAcceptHoverEvents(true);
     }
     void setEndpoints(const QPointF& from, const QPointF& to) {
         if (initialized_ && from == from_ && to == to_)
@@ -136,11 +138,8 @@ NodeItem::NodeItem(QString id, NodeDescriptor descriptor, SessionController& ses
         const qreal height = std::max({descriptor_.kind == QStringLiteral("mixer") ? 175.0 : 112.0,
                                        90.0 + std::max(0, ports - 1) * 26.0,
                                        proxy->pos().y() + content_->height() + 11});
-        if (height != bodyHeight_) {
-            prepareGeometryChange();
-            bodyHeight_ = height;
-            update();
-        }
+        expandedHeight_ = height;
+        updateBodyGeometry();
     };
     connect(content_, &NodeContent::geometryChanged, this, resizeBody);
     if (descriptor_.captureSource) {
@@ -157,6 +156,8 @@ NodeItem::NodeItem(QString id, NodeDescriptor descriptor, SessionController& ses
     connect(content_, &NodeContent::actionRequested, this,
             [this](const QString& action) { emit actionRequested(id_, action, {}); });
     connect(content_, &NodeContent::interactionStarted, this, [this] {
+        if (compact_ && !isSelected())
+            return;
         if (scene())
             scene()->clearSelection();
         setSelected(true);
@@ -242,10 +243,13 @@ void NodeItem::updateHeaderHover(const QPointF& position) {
     const int action = headerActionRect(1).contains(position)   ? 1
                        : headerActionRect(2).contains(position) ? 2
                                                                 : 0;
-    if (hoveredHeaderAction_ == action)
+    const bool summary = compact_ && !isSelected() && compactSummaryRect().contains(position);
+    if (hoveredHeaderAction_ == action && summaryHovered_ == summary)
         return;
     hoveredHeaderAction_ = action;
-    update(QRectF(Theme::NodeWidth - 70, 6, 68, 34));
+    summaryHovered_ = summary;
+    setCursor(summary ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    update();
 }
 void NodeItem::hoverEnterEvent(QGraphicsSceneHoverEvent* event) {
     updateHeaderHover(event->pos());
@@ -279,9 +283,52 @@ void NodeItem::paintHeaderActions(QPainter* painter) const {
 QRectF NodeItem::boundingRect() const {
     return QRectF(-11, -6, Theme::NodeWidth + 22, bodyHeight_ + 12);
 }
+QString NodeItem::displayName() const {
+    return displayName_.isEmpty() ? descriptor_.title : displayName_;
+}
+void NodeItem::setDisplayName(const QString& name) {
+    displayName_ = name;
+    setProperty("accessibleName", displayName());
+    updateToolTip();
+    content_->setAccessibleName(QStringLiteral("Controles de %1").arg(displayName()));
+    update();
+}
+void NodeItem::setCompact(bool compact) {
+    compact_ = compact;
+    updateBodyGeometry();
+}
+void NodeItem::updateBodyGeometry() {
+    const bool collapsed = compact_ && !isSelected();
+    const int ports = std::max(descriptor_.inputs, descriptor_.outputs);
+    const qreal height = collapsed ? std::max(88.0, 88.0 + (ports - 1) * 26.0) : expandedHeight_;
+    if (height != bodyHeight_) {
+        prepareGeometryChange();
+        bodyHeight_ = height;
+    }
+    for (auto* child : childItems())
+        if (dynamic_cast<QGraphicsProxyWidget*>(child))
+            child->setVisible(!collapsed);
+    summaryHovered_ = false;
+    setCursor(Qt::ArrowCursor);
+    updateToolTip();
+    update();
+    emit geometryChanged();
+}
 QPointF NodeItem::portPosition(bool output, int index) const {
     const int count = output ? descriptor_.outputs : descriptor_.inputs;
     return {output ? qreal(Theme::NodeWidth) : 0.0, (count > 1 ? 64.0 : 63.0) + index * 26.0};
+}
+QRectF NodeItem::compactSummaryRect() const {
+    return QRectF(12, bodyHeight_ - 34, Theme::NodeWidth - 24, 26);
+}
+void NodeItem::updateToolTip() {
+    QStringList lines{displayName(), descriptor_.description, signalStatus_, playbackDetails_};
+    if (compact_ && !isSelected())
+        lines.append(QStringLiteral("Clique para expandir os controles."));
+    lines.removeAll(QString());
+    for (auto& line : lines)
+        line = line.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+    setToolTip(QStringLiteral("<qt>%1</qt>").arg(lines.join(QStringLiteral("<br>"))));
 }
 void NodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget*) {
     const QRectF body(0, 0, Theme::NodeWidth, bodyHeight_);
@@ -291,7 +338,7 @@ void NodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
         painter->setBrush(Qt::NoBrush);
         painter->drawRoundedRect(body.adjusted(-4, -4, 4, 4), 12, 12);
     }
-    painter->setPen(QPen(QColor(61, 75, 90), 1));
+    painter->setPen(QPen(Theme::highContrast() ? Theme::muted() : QColor(61, 75, 90), 1));
     painter->setBrush(Theme::panel());
     painter->drawRoundedRect(body, 9, 9);
     QPainterPath accent(QPointF(0.5, 9));
@@ -314,7 +361,7 @@ void NodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
     painter->setFont(font);
     painter->setPen(QColor(219, 227, 239));
     painter->drawText(QRectF(37, 7, 133, 17), Qt::AlignVCenter,
-                      painter->fontMetrics().elidedText(descriptor_.title, Qt::ElideRight, 133));
+                      painter->fontMetrics().elidedText(displayName(), Qt::ElideRight, 133));
     font.setPixelSize(Theme::DetailFont);
     painter->setFont(font);
     painter->setPen(Theme::muted());
@@ -323,6 +370,29 @@ void NodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
     paintHeaderActions(painter);
     painter->setPen(QColor(48, 58, 71));
     painter->drawLine(QPointF(1, 45), QPointF(Theme::NodeWidth - 1, 45));
+    if (compact_ && !isSelected()) {
+        const auto summary = compactSummaryRect();
+        painter->setBrush(summaryHovered_ ? QColor(36, 56, 50) : Theme::headerBackground());
+        painter->setPen(Theme::highContrast() ? Theme::muted()
+                        : summaryHovered_     ? QColor(82, 125, 113)
+                                              : QColor(49, 63, 77));
+        painter->drawRoundedRect(summary, 5, 5);
+        const auto color = summaryHovered_ ? Theme::mint() : Theme::muted();
+        paintStudioIcon(*painter,
+                        descriptor_.filePlayer || descriptor_.captureSource ||
+                                descriptor_.kind == QStringLiteral("output") ||
+                                descriptor_.kind == QStringLiteral("capture") || descriptor_.missing
+                            ? blockIcon(descriptor_)
+                            : StudioIcon::Meter,
+                        QRectF(summary.left() + 8, summary.top() + 6, 14, 14), color);
+        painter->setPen(Theme::text());
+        const auto textRect = summary.adjusted(29, 0, -22, 0);
+        painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+                          painter->fontMetrics().elidedText(signalStatus_, Qt::ElideRight,
+                                                            static_cast<int>(textRect.width())));
+        paintStudioIcon(*painter, StudioIcon::ChevronRight,
+                        QRectF(summary.right() - 18, summary.top() + 7, 12, 12), color);
+    }
 }
 void NodeItem::setState(const QJsonObject& block, double peak) {
     block_ = block;
@@ -332,8 +402,12 @@ void NodeItem::setState(const QJsonObject& block, double peak) {
 }
 void NodeItem::setPlayback(const PlaybackState& state) {
     content_->setPlayback(state, controlsEnabled_);
-    setToolTip(state.name + QLatin1Char('\n') + state.label + QLatin1Char('\n') + state.reason +
-               QLatin1Char('\n') + state.warning);
+    const auto details =
+        state.label + QLatin1Char('\n') + state.reason + QLatin1Char('\n') + state.warning;
+    if (playbackDetails_ != details) {
+        playbackDetails_ = details;
+        updateToolTip();
+    }
 }
 void NodeItem::synchronizeControls(const QJsonArray& devices, bool enabled,
                                    const QJsonObject& runtime) {
@@ -345,8 +419,8 @@ void NodeItem::synchronizeControls(const QJsonArray& devices, bool enabled,
             descriptor_.title = presentation.title;
             descriptor_.subtitle = presentation.subtitle;
             descriptor_.description = presentation.note;
-            setToolTip(presentation.title + QLatin1Char('\n') + presentation.note);
-            setProperty("accessibleName", presentation.title);
+            updateToolTip();
+            setProperty("accessibleName", displayName());
             update();
         }
     }
@@ -354,6 +428,12 @@ void NodeItem::synchronizeControls(const QJsonArray& devices, bool enabled,
     content_->synchronize(block_, devices, enabled, peak_, runtime);
 }
 void NodeItem::setSignalStatus(const QString& text) {
+    if (signalStatus_ != text) {
+        signalStatus_ = text;
+        updateToolTip();
+        if (compact_ && !isSelected())
+            update();
+    }
     content_->setSignalStatus(text);
 }
 void NodeItem::focusPrimaryControl() {
@@ -362,6 +442,8 @@ void NodeItem::focusPrimaryControl() {
 QVariant NodeItem::itemChange(GraphicsItemChange change, const QVariant& value) {
     if (change == ItemPositionHasChanged)
         emit moved();
+    if (change == ItemSelectedHasChanged)
+        updateBodyGeometry();
     return QGraphicsObject::itemChange(change, value);
 }
 void NodeItem::mousePressEvent(QGraphicsSceneMouseEvent* event) {
@@ -375,7 +457,7 @@ void NodeItem::mousePressEvent(QGraphicsSceneMouseEvent* event) {
         event->accept();
         return;
     }
-    setSelected(true);
+    // Let Qt handle Ctrl selection and moving an existing group.
     if (needsInspector())
         emit inspectRequested(id_);
     QGraphicsObject::mousePressEvent(event);
@@ -441,6 +523,12 @@ void GraphScene::synchronize() {
             connect(item, &NodeItem::fieldEdited, &session_, &SessionController::updateField);
             connect(item, &NodeItem::actionRequested, this, &GraphScene::nodeActionRequested);
             connect(item, &NodeItem::gestureRequested, &session_, &SessionController::gesture);
+            connect(item, &NodeItem::geometryChanged, this, [this] {
+                if (!synchronizing_)
+                    updateConnections();
+            });
+            item->setCompact(compact_);
+            item->setDisplayName(names_.value(id));
             connect(item, &NodeItem::moved, this, [this, item, id] {
                 savedPositions_.insert(id, item->pos());
                 setSceneRect(
@@ -552,6 +640,11 @@ void GraphScene::updateConnections(const QString& movedNode) {
             continue;
         auto* from = nodes_.value(fromId);
         auto* to = nodes_.value(toId);
+        item->setToolTip(QStringLiteral("%1 · saída %2 → %3 · entrada %4")
+                             .arg(nodeTitle(fromId))
+                             .arg(edge.value(QStringLiteral("from_port")).toInt() + 1)
+                             .arg(nodeTitle(toId))
+                             .arg(edge.value(QStringLiteral("to_port")).toInt() + 1));
         if (from && to)
             static_cast<ConnectionItem*>(item)->setEndpoints(
                 from->mapToScene(
@@ -574,12 +667,40 @@ bool GraphScene::usePort(QGraphicsItem* item) {
     if (item->data(1).toString() == QStringLiteral("source")) {
         armedNode_ = id;
         armedPort_ = index;
+        updatePortHints();
     } else if (!armedNode_.isEmpty()) {
-        session_.connectNodes(armedNode_, armedPort_, id, index);
-        armedNode_.clear();
-        preview_->setPath({});
+        if (canConnect(armedNode_, id, index)) {
+            session_.connectNodes(armedNode_, armedPort_, id, index);
+            cancelConnection();
+        }
     }
     return true;
+}
+void GraphScene::cancelConnection() {
+    armedNode_.clear();
+    preview_->setPath({});
+    updatePortHints();
+}
+void GraphScene::updatePortHints() {
+    for (auto it = nodes_.begin(); it != nodes_.end(); ++it)
+        for (auto* child : it.value()->childItems()) {
+            auto* port = dynamic_cast<PortItem*>(child);
+            if (!port || port->data(1).toString() != QStringLiteral("sink"))
+                continue;
+            if (!port->data(6).isValid())
+                port->setData(6, port->toolTip());
+            const bool armed = !armedNode_.isEmpty();
+            const bool compatible =
+                armed && canConnect(armedNode_, it.key(), port->data(2).toInt());
+            port->setOpacity(armed && !compatible ? .3 : 1);
+            port->setBrush(compatible ? Theme::mint() : QColor(178, 150, 250));
+            port->setToolTip(
+                port->data(6).toString() +
+                (!armed ? QString()
+                 : compatible
+                     ? QStringLiteral(" · conectar aqui")
+                     : QStringLiteral(" · indisponível: mesma fonte, entrada ocupada ou ciclo")));
+        }
 }
 void GraphScene::mousePressEvent(QGraphicsSceneMouseEvent* event) {
     if (event->button() == Qt::LeftButton && usePort(itemAt(event->scenePos(), QTransform()))) {
@@ -628,15 +749,25 @@ void GraphScene::contextMenuEvent(QGraphicsSceneContextMenuEvent* event) {
         owner = owner->parentItem();
     if (auto* node = dynamic_cast<NodeItem*>(owner)) {
         const auto id = node->nodeId();
+        if (!node->isSelected())
+            selectNode(id);
         QMenu menu;
         auto* inspect = menu.addAction(QStringLiteral("Configurar bloco"));
-        auto* remove = menu.addAction(QStringLiteral("Remover bloco"));
+        auto* rename = menu.addAction(QStringLiteral("Renomear bloco…"));
+        auto* duplicate = menu.addAction(QStringLiteral("Duplicar seleção"));
+        auto* remove = menu.addAction(QStringLiteral("Remover seleção"));
+        rename->setEnabled(session_.settled());
+        duplicate->setEnabled(session_.settled());
         remove->setEnabled(session_.settled());
         const auto* chosen = menu.exec(event->screenPos());
         if (chosen == inspect)
             emit inspectRequested(id);
         if (chosen == remove)
-            session_.removeNode(id);
+            removeSelection();
+        if (chosen == rename)
+            emit renameRequested(id);
+        if (chosen == duplicate)
+            emit duplicateRequested();
         event->accept();
         return;
     }
@@ -665,6 +796,11 @@ void GraphScene::contextMenuEvent(QGraphicsSceneContextMenuEvent* event) {
     event->accept();
 }
 void GraphScene::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape && !armedNode_.isEmpty()) {
+        cancelConnection();
+        event->accept();
+        return;
+    }
     const auto selected = selectedItems();
     // Embedded controls own navigation while focused. In particular, changing
     // a device with arrows must not move or delete its graph node.
@@ -677,6 +813,40 @@ void GraphScene::keyPressEvent(QKeyEvent* event) {
             return;
         }
     }
+    if (event->matches(QKeySequence::SelectAll)) {
+        selectAllNodes();
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_F2 && selectedNodeIds().size() == 1) {
+        emit renameRequested(selectedNodeIds().first());
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_D && event->modifiers() == Qt::ControlModifier) {
+        emit duplicateRequested();
+        event->accept();
+        return;
+    }
+    const int step = event->modifiers().testFlag(Qt::ShiftModifier) ? 40 : 10;
+    QPointF groupDelta;
+    if (event->key() == Qt::Key_Left)
+        groupDelta.setX(-step);
+    if (event->key() == Qt::Key_Right)
+        groupDelta.setX(step);
+    if (event->key() == Qt::Key_Up)
+        groupDelta.setY(-step);
+    if (event->key() == Qt::Key_Down)
+        groupDelta.setY(step);
+    if (!groupDelta.isNull() && selectedNodeIds().size() > 1 && session_.settled()) {
+        synchronizing_ = true;
+        for (const auto& id : selectedNodeIds())
+            placeNode(id, nodeItem(id)->pos() + groupDelta);
+        synchronizing_ = false;
+        emit positionsEdited();
+        event->accept();
+        return;
+    }
     if (selected.size() == 1) {
         if (auto* node = dynamic_cast<NodeItem*>(selected.first())) {
             if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
@@ -687,7 +857,6 @@ void GraphScene::keyPressEvent(QKeyEvent* event) {
                 event->accept();
                 return;
             }
-            const int step = event->modifiers().testFlag(Qt::ShiftModifier) ? 40 : 10;
             QPointF delta;
             if (event->key() == Qt::Key_Left)
                 delta.setX(-step);
@@ -705,19 +874,13 @@ void GraphScene::keyPressEvent(QKeyEvent* event) {
         }
     }
     if (event->key() == Qt::Key_Escape) {
-        armedNode_.clear();
-        preview_->setPath({});
+        cancelConnection();
         clearSelection();
         event->accept();
         return;
     }
     if (event->key() == Qt::Key_Delete) {
-        if (selected.size() == 1) {
-            if (const auto* node = dynamic_cast<NodeItem*>(selected.first()))
-                session_.removeNode(node->nodeId());
-            else if (selected.first()->data(3).isValid())
-                session_.disconnectEdge(selected.first()->data(3).toJsonObject());
-        }
+        removeSelection();
         event->accept();
         return;
     }

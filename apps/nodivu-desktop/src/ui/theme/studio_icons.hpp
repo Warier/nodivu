@@ -29,7 +29,9 @@ enum class StudioIcon {
     Undo,
     Redo,
     Folder,
-    Warning
+    Warning,
+    Star,
+    ChevronRight
 };
 StudioIcon blockIcon(const NodeDescriptor& descriptor);
 void paintStudioIcon(QPainter& painter, StudioIcon icon, const QRectF& bounds, const QColor& color);

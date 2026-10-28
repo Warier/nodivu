@@ -3,17 +3,51 @@
 #include "ui/controls/search_text.hpp"
 #include "ui/theme/studio_icons.hpp"
 #include "ui/theme/theme.hpp"
+#include <QAction>
+#include <QJsonArray>
 #include <QLineEdit>
+#include <QMenu>
+#include <QPainter>
+#include <QStyleOptionButton>
 
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QScrollArea>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <algorithm>
 
 namespace nodivu {
+namespace {
+class OutputShortcutButton final : public QPushButton {
+  public:
+    using QPushButton::QPushButton;
+
+  protected:
+    void paintEvent(QPaintEvent*) override {
+        QStyleOptionButton option;
+        initStyleOption(&option);
+        const auto contents = style()->subElementRect(QStyle::SE_PushButtonContents, &option, this);
+        // Keep the native button states and a consistent gap independent of Qt's icon spacing.
+        option.text.clear();
+        option.icon = QIcon();
+        QPainter painter(this);
+        style()->drawControl(QStyle::CE_PushButton, &option, &painter, this);
+        const QRect iconBounds(contents.left(), contents.center().y() - iconSize().height() / 2,
+                               iconSize().width(), iconSize().height());
+        icon().paint(&painter, iconBounds, Qt::AlignCenter,
+                     isEnabled() ? QIcon::Normal : QIcon::Disabled);
+        const auto textBounds = contents.adjusted(iconSize().width() + 10, 0, 0, 0);
+        painter.setPen(option.palette.color(QPalette::ButtonText));
+        painter.drawText(textBounds, Qt::AlignLeft | Qt::AlignVCenter,
+                         fontMetrics().elidedText(text(), Qt::ElideRight, textBounds.width()));
+    }
+};
+} // namespace
+
 LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
     setObjectName(QStringLiteral("libraryPanel"));
     setAttribute(Qt::WA_StyledBackground);
@@ -100,24 +134,31 @@ LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
     help->setWordWrap(true);
     help->setStyleSheet(QStringLiteral("font-size: 11px; color: #95a1b2;"));
     introLayout->addWidget(help);
-    auto* virtualOutput = new QPushButton(QStringLiteral("Configurar saída"), intro_);
-    virtualOutput->setIcon(studioIcon(StudioIcon::Output));
+    auto* virtualOutput = new OutputShortcutButton(QStringLiteral("Configurar saída"), intro_);
+    virtualOutput->setIcon(studioIcon(StudioIcon::Output, QColor(255, 255, 255)));
+    virtualOutput->setIconSize(QSize(18, 18));
     virtualOutput->setToolTip(
         QStringLiteral("Escolher fones, alto-falantes ou um cabo virtual opcional."));
     virtualOutput->setObjectName(QStringLiteral("virtualOutputShortcut"));
     virtualOutput_ = virtualOutput;
     virtualOutput->setEnabled(false);
-    virtualOutput->setFixedHeight(34);
+    virtualOutput->setFixedHeight(38);
     virtualOutput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     virtualOutput->setStyleSheet(
-        QStringLiteral("QPushButton { font-size: 11px; background: #252333; border: 1px solid "
-                       "#4f4566; padding: 8px; }"
-                       "QPushButton:hover, QPushButton:focus { border-color: #70d9bd; }"));
+        QStringLiteral("QPushButton#virtualOutputShortcut { font-size: 12px; text-align: left; "
+                       "color: #dbe3ef; background: #252333; border: 1px solid #4f4566; "
+                       "border-radius: 7px; padding: 8px 12px; }"
+                       "QPushButton#virtualOutputShortcut:hover { background: #302b40; "
+                       "border-color: #75658f; }"
+                       "QPushButton#virtualOutputShortcut:focus { border-color: #70d9bd; }"
+                       "QPushButton#virtualOutputShortcut:pressed { background: #211d2e; }"
+                       "QPushButton#virtualOutputShortcut:disabled { color: #758193; "
+                       "background: transparent; border-color: #2b3543; }"));
     introLayout->addWidget(virtualOutput);
     connect(virtualOutput, &QPushButton::clicked, this, &LibraryPanel::virtualOutputRequested);
     contentLayout_->addWidget(intro_);
-    for (const auto& name :
-         {QStringLiteral("Fontes"), QStringLiteral("Processamento"), QStringLiteral("Destinos")}) {
+    for (const auto& name : {QStringLiteral("Favoritos"), QStringLiteral("Fontes"),
+                             QStringLiteral("Processamento"), QStringLiteral("Destinos")}) {
         Category category;
         category.name = name;
         category.container = new QWidget(content);
@@ -154,15 +195,10 @@ LibraryPanel::LibraryPanel(QWidget* parent) : QWidget(parent) {
             cards->setVisible(expanded);
             button->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
         });
+        connect(button, &QToolButton::clicked, this, &LibraryPanel::preferencesChanged);
         contentLayout_->addWidget(category.container);
         categories_.append(category);
     }
-    note_ = new QLabel(QStringLiteral("Puxe um fio entre as portas.\nBotão direito no fio para "
-                                      "opções.\nGanho e bypass sem parar o áudio."),
-                       content);
-    note_->setContentsMargins(0, 24, 0, 0);
-    note_->setStyleSheet(QStringLiteral("font-size: 11px; color: #95a1b2;"));
-    contentLayout_->addWidget(note_);
     contentLayout_->addStretch(1);
     scroll_->setWidget(content);
     layout->addWidget(scroll_, 1);
@@ -173,6 +209,7 @@ void LibraryPanel::setVirtualOutputEnabled(bool enabled) {
 }
 
 void LibraryPanel::setCatalog(const NodeCatalog& catalog) {
+    catalog_ = catalog;
     for (auto& category : categories_)
         while (auto* item = category.layout->takeAt(0)) {
             delete item->widget();
@@ -183,9 +220,32 @@ void LibraryPanel::setCatalog(const NodeCatalog& catalog) {
                           : descriptor.outputs == 0 ? QStringLiteral("Destinos")
                                                     : QStringLiteral("Processamento");
         for (auto& category : categories_) {
-            if (category.name != name)
+            const bool favoriteCategory = category.name == QStringLiteral("Favoritos");
+            if (favoriteCategory ? !favorites_.contains(descriptor.catalogKey())
+                                 : category.name != name)
                 continue;
             auto* button = new LibraryBlockButton(descriptor, category.cards);
+            if (favoriteCategory)
+                button->setObjectName(QStringLiteral("favorite:") + descriptor.catalogKey());
+            button->setProperty("favorite", favorites_.contains(descriptor.catalogKey()));
+            button->setContextMenuPolicy(Qt::ActionsContextMenu);
+            auto* favorite = new QAction(favorites_.contains(descriptor.catalogKey())
+                                             ? QStringLiteral("Remover dos favoritos")
+                                             : QStringLiteral("Adicionar aos favoritos"),
+                                         button);
+            button->addAction(favorite);
+            connect(favorite, &QAction::triggered, this, [this, key = descriptor.catalogKey()] {
+                auto favorites = favorites_;
+                if (favorites.contains(key))
+                    favorites.removeAll(key);
+                else
+                    favorites.append(key);
+                // Rebuild after the context menu has released its source action.
+                QTimer::singleShot(0, this, [this, favorites] {
+                    setFavorites(favorites);
+                    emit preferencesChanged();
+                });
+            });
             button->setProperty("searchTerms", blockSearchText(descriptor));
             button->setCompact(collapsed_);
             category.layout->addWidget(button);
@@ -193,7 +253,6 @@ void LibraryPanel::setCatalog(const NodeCatalog& catalog) {
                     [this, kind = descriptor.kind, pluginId = descriptor.pluginId] {
                         emit addRequested(kind, pluginId);
                     });
-            break;
         }
     }
     filterBlocks();
@@ -236,9 +295,7 @@ void LibraryPanel::toggleCollapsed() {
         search_->clear();
     headingLabels_->setVisible(!collapsed_);
     intro_->setVisible(!collapsed_);
-    note_->setVisible(!collapsed_);
-    contentLayout_->setContentsMargins(collapsed_ ? 9 : 12, collapsed_ ? 12 : 18,
-                                       collapsed_ ? 9 : 12, 0);
+    updateMargins();
     toggle_->setToolTip(collapsed_ ? QStringLiteral("Abrir biblioteca")
                                    : QStringLiteral("Recolher biblioteca"));
     for (auto& category : categories_) {
@@ -250,5 +307,51 @@ void LibraryPanel::toggleCollapsed() {
     for (auto* button : findChildren<LibraryBlockButton*>())
         button->setCompact(collapsed_);
     emit widthRequested(collapsed_ ? 64 : expandedWidth_);
+    emit preferencesChanged();
+}
+QStringList LibraryPanel::favorites() const {
+    return favorites_;
+}
+void LibraryPanel::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    updateMargins();
+}
+void LibraryPanel::updateMargins() {
+    if (!contentLayout_)
+        return;
+    const int horizontal = collapsed_ ? 9 : width() < 208 ? 8 : 12;
+    contentLayout_->setContentsMargins(horizontal, collapsed_ ? 12 : 18, horizontal, 0);
+}
+void LibraryPanel::setFavorites(const QStringList& favorites) {
+    favorites_ = favorites.mid(0, 128);
+    favorites_.removeDuplicates();
+    setCatalog(catalog_);
+}
+QJsonObject LibraryPanel::workspaceState() const {
+    QJsonObject categories;
+    for (const auto& category : categories_)
+        categories.insert(category.name,
+                          collapsed_ ? category.expanded : category.toggle->isChecked());
+    QJsonArray favorites;
+    for (const auto& key : favorites_)
+        favorites.append(key);
+    return {{QStringLiteral("collapsed"), collapsed_},
+            {QStringLiteral("width"), collapsed_ ? expandedWidth_ : width()},
+            {QStringLiteral("categories"), categories},
+            {QStringLiteral("favorites"), favorites}};
+}
+void LibraryPanel::restoreWorkspaceState(const QJsonObject& state) {
+    QStringList favorites;
+    for (const auto& value : state.value(QStringLiteral("favorites")).toArray())
+        if (value.isString() && value.toString().size() <= 256)
+            favorites.append(value.toString());
+    setFavorites(favorites);
+    const auto categories = state.value(QStringLiteral("categories")).toObject();
+    for (auto& category : categories_)
+        category.toggle->setChecked(categories.value(category.name).toBool(true));
+    expandedWidth_ = std::clamp(state.value(QStringLiteral("width")).toInt(248), 184, 320);
+    emit widthRequested(expandedWidth_);
+    if (state.value(QStringLiteral("collapsed")).toBool() != collapsed_)
+        toggleCollapsed();
 }
 } // namespace nodivu

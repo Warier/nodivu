@@ -9,6 +9,8 @@ class GraphView final : public QGraphicsView {
   public:
     explicit GraphView(QGraphicsScene* scene, QWidget* parent = nullptr);
     void fitNodes();
+    void fitSelection();
+    void focusPosition(const QPointF& point);
     void setOverlayWidget(QWidget* overlay);
     void addOverlayWidget(QWidget* overlay);
     QRect availableViewportRect() const;

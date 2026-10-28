@@ -4,6 +4,7 @@
 #include <QWidget>
 
 class QPushButton;
+class QScrollArea;
 
 namespace nodivu {
 class EmptyGraphWidget final : public QWidget {
@@ -29,5 +30,7 @@ class EmptyGraphWidget final : public QWidget {
     QString filePlugin_;
     bool ready_ = false;
     QPushButton* start_ = nullptr;
+    QScrollArea* scroll_ = nullptr;
+    QWidget* body_ = nullptr;
 };
 } // namespace nodivu

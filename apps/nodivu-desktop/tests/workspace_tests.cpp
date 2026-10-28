@@ -51,6 +51,7 @@
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextEdit>
+#include <QTimer>
 #include <QToolButton>
 #include <QToolTip>
 #include <QTreeWidget>
@@ -379,6 +380,62 @@ class WorkspaceTests final : public QObject {
                 QDir(evidence).filePath(QStringLiteral("new-node-visible.png"))));
         QVERIFY(session.snapshot().value(QStringLiteral("engine_state")).toString() !=
                 QStringLiteral("running"));
+    }
+    void canvasHintsCycleWithoutMovingTheCanvasAndPauseWhileReading() {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        auto paths = nodivu::AppPaths::development(QStringLiteral(NODIVU_REPOSITORY_DIR));
+        paths.profile = profile.path();
+        paths.plugins = QDir(profile.path()).filePath(QStringLiteral("plugins"));
+        paths.storeSource.clear();
+        nodivu::MainWindow window(paths);
+        window.resize(1100, 680);
+        window.show();
+        window.activateWindow();
+        QTRY_VERIFY_WITH_TIMEOUT(window.session().settled() && window.isActiveWindow(), 10000);
+        auto* hint = window.findChild<QLabel*>(QStringLiteral("connectionHint"));
+        auto* timer = window.findChild<QTimer*>(QStringLiteral("canvasHintTimer"));
+        auto* view = window.findChild<nodivu::GraphView*>();
+        QVERIFY(hint && timer && view);
+        QCOMPARE(timer->interval(), 8000);
+        QTest::mouseMove(&window, QPoint(20, 20));
+        QTRY_VERIFY(timer->isActive());
+        timer->stop();
+        const auto original = hint->text();
+        const auto canvasBounds = view->geometry();
+        QSet<QString> hints;
+        for (int index = 0; index < 4; ++index) {
+            hints.insert(hint->text());
+            const auto evidence = qEnvironmentVariable("NODIVU_WORKSPACE_SCREENSHOTS");
+            if (!evidence.isEmpty())
+                QVERIFY(window.grab().save(
+                    QDir(evidence).filePath(QStringLiteral("canvas-tip-%1.png").arg(index))));
+            QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+            QCoreApplication::processEvents();
+            QCOMPARE(view->geometry(), canvasBounds);
+        }
+        QCOMPARE(hints.size(), 4);
+        QCOMPARE(hint->text(), original);
+        QVERIFY(hint->toolTip().contains(QStringLiteral("Ganho")));
+        QVERIFY(hint->accessibleDescription().contains(QStringLiteral("Shift+roda")));
+
+        timer->setInterval(60);
+        timer->start();
+        QTest::mouseMove(hint, hint->rect().center());
+        QTRY_VERIFY(!timer->isActive());
+        const auto paused = hint->text();
+        QTest::qWait(180);
+        QCOMPARE(hint->text(), paused);
+        QTest::mouseMove(&window, QPoint(20, 20));
+        QTRY_VERIFY(timer->isActive());
+        QTRY_VERIFY(hint->text() != paused);
+        window.hide();
+        QVERIFY(!timer->isActive());
+        const auto hidden = hint->text();
+        QTest::qWait(180);
+        QCOMPARE(hint->text(), hidden);
+        window.show();
+        QTRY_VERIFY(timer->isActive());
     }
     void audioBannerSelectsOutputWithoutSelectingADeviceAndFooterTracksRevision() {
         QTemporaryDir profile;

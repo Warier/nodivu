@@ -1,5 +1,6 @@
 #include "features/graph/routing_panel.hpp"
 #include "ui/controls/action_availability.hpp"
+#include "ui/theme/studio_icons.hpp"
 #include "ui/theme/studio_panel_style.hpp"
 #include <QComboBox>
 #include <QDialog>
@@ -17,10 +18,12 @@
 
 namespace nodivu {
 namespace {
-QString title(const SessionController& session, const QString& id) {
+QString title(const SessionController& session, const QJsonObject& names, const QString& id) {
     const auto descriptor = session.catalog().describe(session.node(id));
     auto base =
         descriptor.title.isEmpty() ? QStringLiteral("Bloco indisponível") : descriptor.title;
+    if (!names.value(id).toString().isEmpty())
+        base = names.value(id).toString();
     int index = 0;
     for (const auto& node : session.snapshot()
                                 .value(QStringLiteral("graph"))
@@ -114,6 +117,13 @@ void RoutingPanel::setBlockedReason(const QString& reason) {
     blockedReason_ = reason;
     updateActions();
 }
+void RoutingPanel::setDisplayNames(const QJsonObject& names) {
+    if (names_ == names)
+        return;
+    names_ = names;
+    graph_ = {};
+    synchronize();
+}
 void RoutingPanel::showEvent(QShowEvent* event) {
     synchronize();
     QWidget::showEvent(event);
@@ -138,9 +148,8 @@ void RoutingPanel::synchronize() {
         const auto node = value.toObject();
         const auto id = node.value(QStringLiteral("id")).toString();
         const auto descriptor = session_.catalog().describe(node);
-        auto* item =
-            new QTreeWidgetItem(tree_, {descriptor.icon() + QLatin1Char(' ') + title(session_, id),
-                                        descriptor.subtitle});
+        auto* item = new QTreeWidgetItem(tree_, {title(session_, names_, id), descriptor.subtitle});
+        item->setIcon(0, studioIcon(blockIcon(descriptor), descriptor.accent));
         item->setForeground(0, descriptor.accent);
         item->setData(0, Qt::UserRole, id);
         item->setToolTip(0, descriptor.description);
@@ -160,7 +169,7 @@ void RoutingPanel::synchronize() {
             nodes.value(from),
             {QStringLiteral("Saída %1 → %2 · %3")
                  .arg(edge.value(QStringLiteral("from_port")).toInt() + 1)
-                 .arg(title(session_, to),
+                 .arg(title(session_, names_, to),
                       inputLabel(descriptor, edge.value(QStringLiteral("to_port")).toInt())),
              QStringLiteral("Conexão")});
         item->setData(0, Qt::UserRole, from);
@@ -259,9 +268,9 @@ void RoutingPanel::connectSelected() {
         const auto descriptor = session_.catalog().describe(node);
         const auto id = node.value(QStringLiteral("id")).toString();
         if (descriptor.outputs > 0)
-            from.addItem(title(session_, id), id);
+            from.addItem(title(session_, names_, id), id);
         if (descriptor.inputs > 0)
-            to.addItem(title(session_, id), id);
+            to.addItem(title(session_, names_, id), id);
     }
     const auto updatePorts = [&] {
         const auto source =

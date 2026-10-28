@@ -5,6 +5,7 @@
 #include <QEvent>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -12,7 +13,19 @@
 namespace nodivu {
 EmptyGraphWidget::EmptyGraphWidget(QWidget* viewport) : QWidget(viewport) {
     setObjectName(QStringLiteral("emptyGraph"));
-    auto* layout = new QVBoxLayout(this);
+    auto* outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    scroll_ = new QScrollArea(this);
+    scroll_->setObjectName(QStringLiteral("welcomeScroll"));
+    scroll_->setFrameShape(QFrame::NoFrame);
+    scroll_->setWidgetResizable(true);
+    scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll_->setStyleSheet(QStringLiteral(
+        "QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"));
+    body_ = new QWidget(scroll_);
+    scroll_->setWidget(body_);
+    outer->addWidget(scroll_);
+    auto* layout = new QVBoxLayout(body_);
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(12);
     auto* symbol = new QLabel(this);
@@ -54,8 +67,10 @@ EmptyGraphWidget::EmptyGraphWidget(QWidget* viewport) : QWidget(viewport) {
     file_->setIcon(studioIcon(StudioIcon::File));
     layout->addWidget(apps_, 0, Qt::AlignHCenter);
     layout->addWidget(file_, 0, Qt::AlignHCenter);
-    for (auto* button : {start_, apps_, file_})
+    for (auto* button : {start_, apps_, file_}) {
         button->setMinimumWidth(230);
+        button->installEventFilter(this);
+    }
     connect(apps_, &QPushButton::clicked, this,
             [this] { emit sourceRequested(QStringLiteral("plugin"), appPlugin_); });
     connect(file_, &QPushButton::clicked, this,
@@ -93,7 +108,11 @@ void EmptyGraphWidget::setCatalog(const NodeCatalog& catalog) {
 }
 
 bool EmptyGraphWidget::eventFilter(QObject* watched, QEvent* event) {
-    Q_UNUSED(watched)
+    if (event->type() == QEvent::FocusIn &&
+        (watched == start_ || watched == apps_ || watched == file_)) {
+        auto* button = static_cast<QWidget*>(watched);
+        QTimer::singleShot(0, this, [this, button] { scroll_->ensureWidgetVisible(button, 8, 8); });
+    }
     if (event->type() == QEvent::Resize || event->type() == QEvent::Show ||
         event->type() == QEvent::Hide || event->type() == QEvent::Move) {
         // Scrollbars and the workspace layout can still resize the viewport
@@ -111,7 +130,9 @@ void EmptyGraphWidget::centerInViewport() {
     const auto* view = qobject_cast<GraphView*>(parentWidget()->parentWidget());
     const auto available = view ? view->availableViewportRect() : parentWidget()->rect();
     setFixedWidth(std::min(480, std::max(1, available.width() - 32)));
-    adjustSize();
+    const int preferred = std::max(body_->minimumSizeHint().height(),
+                                   body_->layout()->totalHeightForWidth(std::max(1, width() - 16)));
+    setFixedHeight(std::min(std::max(1, available.height() - 16), preferred));
     const auto offset = available.center() - rect().center();
     move(offset.x(), std::max(available.top(), offset.y()));
 }

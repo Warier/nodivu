@@ -11,6 +11,7 @@ class RoutingPanel final : public QWidget {
   public:
     explicit RoutingPanel(SessionController& session, QWidget* parent = nullptr);
     void setBlockedReason(const QString& reason);
+    void setDisplayNames(const QJsonObject& names);
   signals:
     void inspectRequested(const QString& id);
 
@@ -27,6 +28,7 @@ class RoutingPanel final : public QWidget {
     QPushButton* remove_ = nullptr;
     QPushButton* connect_ = nullptr;
     QJsonObject graph_;
+    QJsonObject names_;
     QString blockedReason_;
     QJsonObject availabilityGraph_;
     bool possibleConnection_ = false;

@@ -25,6 +25,7 @@ class InspectorPanel final : public QFrame {
     }
     void dockToCorner();
     void setSavedPath(const QString& path);
+    void setDisplayNames(const QJsonObject& names);
 
   signals:
     void reloadRequested(const QString& id);
@@ -58,5 +59,6 @@ class InspectorPanel final : public QFrame {
     bool collapsed_ = false;
     bool adjustingGeometry_ = false;
     QString savedPath_;
+    QJsonObject names_;
 };
 } // namespace nodivu

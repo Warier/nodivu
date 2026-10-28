@@ -11,10 +11,29 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPointer>
+#include <QResizeEvent>
 #include <algorithm>
+#include <cmath>
 
 namespace nodivu {
 namespace {
+qreal layoutText(QTextLayout& layout, qreal width) {
+    QTextOption option;
+    option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    layout.setTextOption(option);
+    layout.beginLayout();
+    qreal height = 0;
+    while (true) {
+        auto line = layout.createLine();
+        if (!line.isValid())
+            break;
+        line.setLineWidth(std::max(1.0, width));
+        line.setPosition(QPointF(0, height));
+        height += line.height();
+    }
+    layout.endLayout();
+    return height;
+}
 QString libraryDescription(const NodeDescriptor& descriptor) {
     if (descriptor.kind == QStringLiteral("capture"))
         return QStringLiteral(
@@ -48,7 +67,8 @@ QString libraryDescription(const NodeDescriptor& descriptor) {
 } // namespace
 
 LibraryBlockButton::LibraryBlockButton(const NodeDescriptor& descriptor, QWidget* parent)
-    : QPushButton(descriptor.title, parent), descriptor_(descriptor) {
+    : QPushButton(descriptor.title, parent), descriptor_(descriptor),
+      titleLayout_(descriptor.title), subtitleLayout_(descriptor.subtitle) {
     setObjectName(descriptor.catalogKey());
     setAccessibleName(descriptor.title);
     setAccessibleDescription(descriptor.subtitle + QLatin1Char('\n') + descriptor.description);
@@ -61,21 +81,54 @@ LibraryBlockButton::LibraryBlockButton(const NodeDescriptor& descriptor, QWidget
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setMinimumWidth(0);
     setAutoDefault(false);
-    setFixedHeight(54);
+    updateTextLayout(196);
 }
 
 void LibraryBlockButton::setCompact(bool compact) {
     compact_ = compact;
-    setFixedHeight(compact ? 42 : 54);
+    updateTextLayout(std::max(132, width()));
     update();
 }
 
 QSize LibraryBlockButton::sizeHint() const {
-    return {196, compact_ ? 42 : 54};
+    return {196, height()};
 }
 
 QSize LibraryBlockButton::minimumSizeHint() const {
-    return {0, compact_ ? 42 : 54};
+    return {0, height()};
+}
+void LibraryBlockButton::updateTextLayout(int width) {
+    if (compact_) {
+        setFixedHeight(42);
+        return;
+    }
+    narrow_ = width < 200;
+    labelLeft_ = narrow_ ? 40 : 54;
+    const qreal available = std::max(1, width - 7 - (narrow_ ? 66 : 82));
+    auto font = this->font();
+    font.setPixelSize(Theme::BodyFont);
+    font.setWeight(QFont::DemiBold);
+    titleLayout_.setFont(font);
+    titleHeight_ = layoutText(titleLayout_, available);
+    font.setPixelSize(Theme::DetailFont);
+    font.setWeight(QFont::Normal);
+    subtitleLayout_.setFont(font);
+    subtitleHeight_ = layoutText(subtitleLayout_, available);
+    const int target =
+        std::max(54, static_cast<int>(std::ceil(titleHeight_ + subtitleHeight_ + 24)));
+    if (height() != target)
+        setFixedHeight(target);
+    update();
+}
+void LibraryBlockButton::resizeEvent(QResizeEvent* event) {
+    QPushButton::resizeEvent(event);
+    if (event->size().width() != event->oldSize().width())
+        updateTextLayout(std::max(132, event->size().width()));
+}
+void LibraryBlockButton::changeEvent(QEvent* event) {
+    QPushButton::changeEvent(event);
+    if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange)
+        updateTextLayout(std::max(132, width()));
 }
 
 void LibraryBlockButton::paintEvent(QPaintEvent*) {
@@ -96,40 +149,34 @@ void LibraryBlockButton::paintEvent(QPaintEvent*) {
     font.setPixelSize(19);
     painter.setFont(font);
     painter.setPen(Theme::mint());
+    const qreal centerY = card.center().y();
     paintStudioIcon(painter, blockIcon(descriptor_),
                     compact_ ? card.adjusted(9, 9, -9, -9)
-                             : QRectF(card.left() + 24, card.top() + 16, 22, 22),
+                             : QRectF(card.left() + (narrow_ ? 10 : 24), centerY - 11, 22, 22),
                     Theme::mint());
     if (!compact_) {
         font.setPixelSize(12);
         painter.setFont(font);
         painter.setPen(QColor(122, 137, 156));
-        paintStudioIcon(painter, StudioIcon::Grip, QRectF(card.left() + 6, card.top() + 19, 13, 16),
-                        Theme::muted());
-        const qreal labelLeft = card.left() + 54;
-        const qreal labelWidth = std::max(0.0, card.width() - 82);
-        font.setPixelSize(Theme::BodyFont);
-        font.setWeight(QFont::DemiBold);
-        painter.setFont(font);
+        if (!narrow_)
+            paintStudioIcon(painter, StudioIcon::Grip, QRectF(card.left() + 6, centerY - 8, 13, 16),
+                            Theme::muted());
+        const qreal textY = (height() - titleHeight_ - subtitleHeight_ - 4) / 2;
         painter.setPen(QColor(228, 232, 238));
-        painter.drawText(QRectF(labelLeft, card.top() + 11, labelWidth, 15), Qt::AlignVCenter,
-                         painter.fontMetrics().elidedText(descriptor_.title, Qt::ElideRight,
-                                                          static_cast<int>(labelWidth)));
-        font.setPixelSize(Theme::DetailFont);
-        font.setWeight(QFont::Normal);
-        painter.setFont(font);
+        titleLayout_.draw(&painter, QPointF(card.left() + labelLeft_, textY));
         painter.setPen(Theme::muted());
-        painter.drawText(QRectF(labelLeft, card.top() + 30, labelWidth, 16), Qt::AlignVCenter,
-                         painter.fontMetrics().elidedText(descriptor_.subtitle, Qt::ElideRight,
-                                                          static_cast<int>(labelWidth)));
+        subtitleLayout_.draw(&painter, QPointF(card.left() + labelLeft_, textY + titleHeight_ + 4));
         font.setPixelSize(16);
         painter.setFont(font);
         painter.setPen(QColor(228, 232, 238));
-        paintStudioIcon(painter, StudioIcon::Plus,
-                        QRectF(card.right() - 22, card.top() + 20, 14, 14), Theme::muted());
+        paintStudioIcon(painter, StudioIcon::Plus, QRectF(card.right() - 22, centerY - 7, 14, 14),
+                        Theme::muted());
+        if (property("favorite").toBool())
+            paintStudioIcon(painter, StudioIcon::Star,
+                            QRectF(card.right() - 19, card.top() + 5, 10, 10), Theme::mint());
     }
     painter.setBrush(Theme::headerBackground());
-    const qreal portY = compact_ ? card.center().y() : card.top() + 24;
+    const qreal portY = centerY;
     if (descriptor_.inputs > 0) {
         painter.setPen(QColor(165, 144, 210));
         painter.drawEllipse(QPointF(card.left(), portY), 3, 3);

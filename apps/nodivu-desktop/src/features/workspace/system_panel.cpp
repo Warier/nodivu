@@ -114,6 +114,7 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
     auto* cableToggle = new QToolButton(content);
     cableToggle->setText(QStringLiteral("Cabo virtual · configuração opcional"));
     cableToggle->setObjectName(QStringLiteral("cableSetup"));
+    cableToggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     cableToggle->setCheckable(true);
     cableToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     cableToggle->setArrowType(Qt::RightArrow);

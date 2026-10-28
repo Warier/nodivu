@@ -1,4 +1,5 @@
 #include "features/graph/graph_view.hpp"
+#include "ui/theme/theme.hpp"
 #include <QAbstractButton>
 #include <QAbstractSlider>
 #include <QAbstractSpinBox>
@@ -48,7 +49,7 @@ GraphView::GraphView(QGraphicsScene* scene, QWidget* parent) : QGraphicsView(sce
     qApp->installEventFilter(this);
 }
 void GraphView::drawBackground(QPainter* painter, const QRectF& rect) {
-    painter->fillRect(rect, QColor(16, 22, 29));
+    painter->fillRect(rect, Theme::highContrast() ? Theme::background() : QColor(16, 22, 29));
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setPen(QPen(QColor(52, 64, 80), 0));
@@ -216,6 +217,34 @@ void GraphView::zoomBy(double factor) {
     emit zoomChanged(target);
     emit cameraEdited();
 }
+void GraphView::focusPosition(const QPointF& point) {
+    const double zoom = transform().m11();
+    scene()->setSceneRect(scene()->sceneRect().united(
+        QRectF(point - QPointF(viewport()->width() / zoom, viewport()->height() / zoom),
+               QSizeF(2 * viewport()->width() / zoom, 2 * viewport()->height() / zoom))));
+    centerOn(point);
+    const auto delta = mapFromScene(point) - availableViewportRect().center();
+    horizontalScrollBar()->setValue(horizontalScrollBar()->value() + delta.x());
+    verticalScrollBar()->setValue(verticalScrollBar()->value() + delta.y());
+    emit cameraEdited();
+}
+void GraphView::fitSelection() {
+    QRectF bounds;
+    for (auto* item : scene()->selectedItems())
+        if (!item->parentItem() && item->flags().testFlag(QGraphicsItem::ItemIsMovable))
+            bounds = bounds.united(item->sceneBoundingRect());
+    if (bounds.isEmpty())
+        return;
+    bounds.adjust(-32, -32, 32, 32);
+    const auto available = availableViewportRect();
+    const auto zoom = std::clamp(
+        std::min(available.width() / bounds.width(), available.height() / bounds.height()), .1,
+        1.5);
+    resetTransform();
+    scale(zoom, zoom);
+    focusPosition(bounds.center());
+    emit zoomChanged(zoom);
+}
 void GraphView::wheelEvent(QWheelEvent* event) {
     if (event->modifiers().testFlag(Qt::ControlModifier)) {
         zoomBy(std::pow(1.0015, event->angleDelta().y()));
@@ -241,6 +270,12 @@ void GraphView::mousePressEvent(QMouseEvent* event) {
         if (auto* proxy = dynamic_cast<QGraphicsProxyWidget*>(current))
             control |= editableWidget(
                 proxy->widget()->childAt(proxy->mapFromScene(mapToScene(event->pos())).toPoint()));
+    }
+    if (event->button() == Qt::LeftButton && !item &&
+        event->modifiers().testFlag(Qt::ShiftModifier) && !spacePan_) {
+        setDragMode(QGraphicsView::RubberBandDrag);
+        QGraphicsView::mousePressEvent(event);
+        return;
     }
     if (event->button() == Qt::MiddleButton ||
         (event->button() == Qt::LeftButton && (!item || (spacePan_ && !control)))) {
@@ -272,11 +307,13 @@ void GraphView::mouseReleaseEvent(QMouseEvent* event) {
         event->accept();
     } else {
         QGraphicsView::mouseReleaseEvent(event);
+        setDragMode(QGraphicsView::NoDrag);
     }
 }
 void GraphView::cancelPan() {
     panning_ = false;
     spacePan_ = false;
+    setDragMode(QGraphicsView::NoDrag);
     viewport()->unsetCursor();
 }
 bool GraphView::eventFilter(QObject* watched, QEvent* event) {
