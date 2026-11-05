@@ -29,8 +29,23 @@ export async function openHotkeys(nodeId=null){
  filter=nodeId;reset();dialog.showModal();
  await act(async()=>{await call('suspend',true);show(await call('list'));});
 }
-$('hotkeys-close').onclick=()=>dialog.close();
-dialog.addEventListener('close',()=>void act(async()=>{await call('suspend',false);}));
+let closing=false;
+async function closeHotkeys(){
+ if(closing||!dialog.open)return;
+ closing=true;
+ try{
+  // HTML's close notification can wait for rendering (e.g. an occluded window
+  // or unavailable compositor). Resume native registration before closing,
+  // while failures can still be shown and retried in the visible dialog.
+  show(await call('suspend',false));dialog.close();
+ }catch(e){$('hotkeys-status').textContent=e.message;$('hotkeys-status').dataset.error='true';}
+ finally{closing=false;}
+}
+$('hotkeys-close').onclick=()=>void closeHotkeys();
+dialog.addEventListener('cancel',event=>{event.preventDefault();void closeHotkeys();});
+// Fallback for programmatic closure. A delayed close from an older opening
+// must never resume shortcuts while a new configuration dialog is open.
+dialog.addEventListener('close',()=>{if(!dialog.open)void act(async()=>{await call('suspend',false);});});
 $('hotkeys-enabled').onchange=()=>void act(async()=>show(await call('save',{...state.config,enabled:$('hotkeys-enabled').checked})));
 $('hotkeys-all').onclick=()=>{filter=null;show(state);};
 $('hotkey-action').onchange=valueHint;

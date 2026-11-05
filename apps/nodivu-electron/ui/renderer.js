@@ -50,11 +50,12 @@ function selectEdge(e){
 function clearSelection(){selectedId=null;selectedEdge=null;inspectorView=null;studio.clear();for(const v of views.values())v.root.classList.remove('selected');}
 // Gesture heartbeats and snapshots share the single-request backend pipe.
 // A bounded control queue stays outside the audio callback and carries no PCM.
-let apiQueue=Promise.resolve(),apiQueued=0;
+let apiQueue=Promise.resolve(),apiQueued=0,hotkeyExecution;
 function api(command,params={}){
  if(apiQueued>=16)return Promise.reject(new Error('Aguarde as operações pendentes.'));
  ++apiQueued;
- const result=apiQueue.then(async()=>{try{const r=await window.nodivu.request(command,params);if(!r.ok){const e=new Error(r.error.message);e.code=r.error.code;throw e;}return r.result;}finally{--apiQueued;}});
+ const execution=hotkeyExecution;
+ const result=apiQueue.then(async()=>{try{const r=await window.nodivu.request(command,params,execution);if(!r.ok){const e=new Error(r.error.message);e.code=r.error.code;throw e;}return r.result;}finally{--apiQueued;}});
  apiQueue=result.catch(()=>{});return result;
 }
 function apply(value){if(!Number.isSafeInteger(value?.revision)||!Array.isArray(value.graph?.nodes)||!Array.isArray(value.graph?.edges))throw new Error('Resposta incompatível com o app.');snapshot=value;}
@@ -150,6 +151,7 @@ function organize(){
 }
 function buildContents(node,d,surface){
  const content=el('div',undefined,'node-content'),fields=new Map();
+ if(d.kind==='plugin'){const fault=el('p','','player-reason');fault.dataset.pluginFault='';fault.setAttribute('role','status');fault.hidden=true;content.append(fault);}
  let lastGroup='';for(const f of d.fields){if(f.group&&f.group!==lastGroup){content.append(el('h3',f.group,'plugin-group'));lastGroup=f.group;}const label=el('label',surface==='node'&&f.key==='bypass'?(d.inputs===0?'Silenciar fonte':d.outputs===0?'Suspender':'Bypass'):f.label),control=el(f.type==='momentary'?'button':['device','select'].includes(f.type)?'select':'input'),value=el('strong','','field-value');control.dataset.field=f.key;label.dataset.quick=String(f.quick??(d.kind!=='plugin'||f.key==='bypass'));if(f.help){const help=el('small',f.help,'field-help');label.append(help);}label.title=f.help||f.label;
   if(f.type==='momentary'){mountMomentary(control,{label:f.label,send:pressed=>{if(busy||!online)return;return api('plugin.gesture',{node_id:node.id,parameter:Number(f.key.slice(10)),pressed});}});label.append(control);content.append(label);continue;}
   if(!['device','select'].includes(f.type))control.type=f.type==='range'?'range':f.type==='number'?'number':'checkbox';
@@ -200,7 +202,7 @@ function syncNode(node,index){const pos=location(node,index),v=views.get(node.id
  if(node.block.kind==='output'){const p=outputPresentation(devices.find(d=>d.endpoint_id===node.block.endpoint_id)),title=v.root.querySelector('.node-title>div');if(title.firstChild.textContent!==p.title){title.firstChild.textContent=p.title;title.querySelector('small').textContent=p.subtitle;}v.root.querySelector('[data-block-note]').textContent=p.note;if(selectedId===node.id&&inspectorView)inspectorView.root.querySelector('[data-block-note]').textContent=p.note;}
  syncControls(node,v);if(selectedId===node.id&&inspectorView)syncControls(node,inspectorView);
 }
-function syncControls(node,v){const ps=snapshot.plugin_states?.[node.id];syncCapture(v.root,ps,busy,online);if(ps?.file)resources.set(node.id,ps.file);const status=v.root.querySelector('[data-player-status]');if(status){
+function syncControls(node,v){const ps=snapshot.plugin_states?.[node.id];const fault=v.root.querySelector('[data-plugin-fault]');if(fault){fault.hidden=!ps?.fault;fault.textContent=ps?.fault?.message||'';}syncCapture(v.root,ps,busy,online);if(ps?.file)resources.set(node.id,ps.file);const status=v.root.querySelector('[data-player-status]');if(status){
   const state=playerState(node),play=v.root.querySelector('[data-action=play]'),reason=v.root.querySelector('[data-player-blocker]');
   status.textContent=state.name+' · '+state.fileState;status.title=state.file;
   const transport=descriptor(node).fileTransport,playing=transport&&ps?.status===3;
@@ -389,11 +391,12 @@ $('recovery-quick-restore').onclick=()=>$('recovery-restore').click();
 
 // Hotkeys use the same validated edit/player paths as the visible controls.
 // Never replay a queue of gestures when a file dialog or project operation finishes.
-window.nodivu.onHotkey(async binding=>{
+window.nodivu.onHotkey(async(binding,execution)=>{
  if(busy)throw Error('Operação em andamento. Tente o atalho novamente.');
  if(document.querySelector('dialog[open]:not(#hotkeys-dialog)'))throw Error('Feche a janela de configuração antes de usar o atalho.');
  let failure;
- await perform(async()=>{try{
+ hotkeyExecution=execution;
+ try{await perform(async()=>{try{
   requireSession();await settleEdits();apply(await api('session.snapshot'));
   const action=actionsFor(snapshot,descriptor).find(a=>a.id===binding.action);
   if(!action)throw Error('O bloco/controle não está disponível neste projeto.');
@@ -417,11 +420,12 @@ window.nodivu.onHotkey(async binding=>{
   const field=descriptor(node).fields.find(f=>f.key===action.field);
   if(!field||field.readonly||field.type==='momentary')throw Error('Controle não permite esta ação.');
   await edit(g=>changeField(g.nodes.find(n=>n.id===node.id),{...action,min:field.min,max:field.max},binding.value));
- }catch(e){failure=e;throw e;}});
+ }catch(e){failure=e;throw e;}});}finally{hotkeyExecution=undefined;}
  if(failure)throw failure;
 });
 $('hotkeys-open').onclick=()=>void openHotkeys();
 window.nodivu.onMenu(action=>{
+ if(action==='diagnostics-export'){void perform(async()=>{const result=await window.nodivu.exportDiagnostics();if(!result.ok)throw Error(result.error.message);});return;}
  if(action==='hotkeys-selected'){void openHotkeys(selectedId);return;}
  if(action==='updates-panel'){if($('app-settings').hidden)$('settings-toggle').click();$('updates-panel').scrollIntoView({block:'nearest'});return;}
  if(document.querySelector('dialog[open]'))return;

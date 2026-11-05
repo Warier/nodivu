@@ -9,6 +9,8 @@ const electronExecutable = require('electron');
   await fs.access(path.join(root, 'target/release/nodivu-app-backend.exe'));
   await fs.cp(path.dirname(electronExecutable), stage, { recursive: true });
   await fs.mkdir(path.join(app, 'bin'), { recursive: true });
+  await fs.copyFile(path.join(__dirname,'hotkey-execution.cjs'),path.join(app,'hotkey-execution.cjs'));
+  await fs.copyFile(path.join(__dirname,'diagnostic-export.cjs'),path.join(app,'diagnostic-export.cjs'));
   for (const file of ['hotkeys.cjs','app-menu.cjs','smoke-hotkeys.cjs','smoke-utility-store.cjs','smoke-cleanup.cjs','plugin-cache.cjs','plugin-catalog.cjs','plugin-store.cjs','smoke-plugin-store.cjs','plugin-versions.cjs','plugin-archive.cjs','smoke-plugin-manager.cjs','plugin-manager.cjs','smoke-studio.cjs','smoke-recovery.cjs','project-recovery.cjs','smoke-monitor.cjs','smoke-update.cjs','updates.cjs','plugin-storage.cjs','diagnostics.cjs','smoke-startup.cjs','package.json', 'demo-engine.cjs', 'main.cjs', 'preload.cjs', 'engine.cjs', 'project-files.cjs', 'recent-projects.cjs', 'smoke.cjs','smoke-capture.cjs', 'smoke-virtual-cable.cjs','smoke-plugin.cjs','smoke-mp3.cjs','smoke-worker.cjs','smoke-routing.cjs','smoke-viewport.cjs','smoke-project.cjs'])
     await fs.copyFile(path.join(__dirname, file), path.join(app, file));
   for(const pkg of await require('../../scripts/runtime-packages.cjs')(__dirname))await fs.cp(pkg.dir,path.join(app,'node_modules',pkg.relative),{recursive:true});

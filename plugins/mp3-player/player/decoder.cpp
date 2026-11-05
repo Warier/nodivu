@@ -11,11 +11,17 @@ static void check(HRESULT hr) {
   if (FAILED(hr))
     throw hr;
 }
-Clip decode_file(const std::wstring &path, const std::atomic<bool> &stopping) {
+static void check_cancelled(const DecodeCancellation &cancel) {
+  if (cancel.cancelled())
+    throw E_ABORT;
+}
+Clip decode_file(const std::wstring &path, const DecodeCancellation &cancel) {
   // Called only on the decoder thread, whose COM/MF lifetime encloses this
   // call.
   ComPtr<IMFSourceReader> reader;
+  check_cancelled(cancel);
   check(MFCreateSourceReaderFromURL(path.c_str(), nullptr, &reader));
+  check_cancelled(cancel);
   check(reader->SetStreamSelection(
       static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS), FALSE));
   check(reader->SetStreamSelection(
@@ -42,12 +48,14 @@ Clip decode_file(const std::wstring &path, const std::atomic<bool> &stopping) {
   Clip clip;
   clip.rate = rate;
   const size_t max_samples = static_cast<size_t>(rate) * 600 * 2;
-  while (!stopping.load()) {
+  for (;;) {
+    check_cancelled(cancel);
     DWORD flags = 0;
     ComPtr<IMFSample> sample;
     check(reader->ReadSample(
         static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), 0, nullptr,
         &flags, nullptr, &sample));
+    check_cancelled(cancel);
     if (flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)
       throw E_INVALIDARG;
     if (sample) {
@@ -65,13 +73,16 @@ Clip decode_file(const std::wstring &path, const std::atomic<bool> &stopping) {
         if (clip.pcm.size() + frames * 2 > max_samples)
           throw HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         const float *input = reinterpret_cast<const float *>(bytes);
-        for (size_t i = 0; i < frames; i++)
+        for (size_t i = 0; i < frames; i++) {
+          if (i % 1024 == 0)
+            check_cancelled(cancel);
           for (unsigned c = 0; c < 2; c++) {
             float value = input[i * channels + (channels == 1 ? 0 : c)];
             if (!std::isfinite(value))
               throw E_INVALIDARG;
             clip.pcm.push_back(value);
           }
+        }
       } catch (...) {
         buffer->Unlock();
         throw;
@@ -81,7 +92,7 @@ Clip decode_file(const std::wstring &path, const std::atomic<bool> &stopping) {
     if (flags & MF_SOURCE_READERF_ENDOFSTREAM)
       break;
   }
-  if (stopping.load() || clip.pcm.empty())
+  if (cancel.cancelled() || clip.pcm.empty())
     throw E_ABORT;
   return clip;
 }

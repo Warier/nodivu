@@ -1,6 +1,11 @@
 # Atalhos de teclado — primeira versão Windows
 
-Disponível no desenvolvimento **0.2.1-dev.2**, posterior à release 0.2.0.
+Disponível desde **0.2.1-dev.2**, posterior à release 0.2.0. Proteção de prazo ampliada em **0.2.1-dev.3**.
+
+Em **0.2.1-dev.4**, Fechar/Escape retomam o registro nativo antes de fechar a janela
+de configuração. O funcionamento não depende mais da entrega posterior do evento
+HTML `close`, que pode atrasar em alguns ambientes. Falha ao retomar mantém a janela
+aberta com o erro para tentar novamente.
 Nenhuma combinação fica ativa por padrão. Não altera volumes nem atalhos do Windows.
 
 ## Configurar e testar
@@ -105,6 +110,12 @@ Implementação: `hotkeys.cjs` (registro/persistência), `app-menu.cjs` (menu na
 pelos comandos existentes). ABI CLAP, schema do grafo e DSP não mudaram nesta entrega.
 
 ## Validação e próximos passos
+
+Cada disparo tem token e prazo de sete segundos. O processo principal verifica ambos
+antes de enviar cada etapa ao backend: uma ação atrasada no renderer não pode enviar
+novas mutações depois de expirar. Isso não desfaz uma etapa já enviada. Em operações
+compostas, o aviso informa que o resultado pode ser parcial; confira o estado antes
+de tentar novamente. Não há fila para reproduzir depois teclas globais acumuladas.
 
 `npm test` inclui normalização/reservas, duplicatas, conflitos, persistência, arquivo corrompido,
 falha de escrita, suspensão, bloco ausente, concorrência e valores dos controles.

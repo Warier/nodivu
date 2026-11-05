@@ -87,8 +87,9 @@ app.whenReady().then(async () => {
     if(win.isDestroyed()||win.webContents.isLoading())throw Error('A interface ainda não está pronta.');
     return new Promise((resolve,reject)=>{
       const token=require('node:crypto').randomUUID();
-      const timer=setTimeout(()=>{hotkeyRequest=null;reject(Error('Interface sem resposta ao atalho.'));},7000);
-      hotkeyRequest={token,resolve,reject,timer};win.webContents.send('hotkeys:execute',{token,binding});
+      const deadline=Date.now()+7000;
+      const timer=setTimeout(()=>{hotkeyRequest=null;reject(Error('Prazo do atalho encerrado. Etapas já iniciadas podem ter sido aplicadas; novas etapas foram bloqueadas.'));},7000);
+      hotkeyRequest={token,deadline,resolve,reject,timer};win.webContents.send('hotkeys:execute',{token,deadline,binding});
     });
   });
   hotkeys.on('change',state=>{if(!win.isDestroyed())win.webContents.send('hotkeys:state',state);});
@@ -225,12 +226,13 @@ app.whenReady().then(async () => {
     }catch(error){return {ok:false,error:{message:'Instalador do cabo indisponível: '+error.message}};}
   });
   if(updateEnabled){const check=setTimeout(()=>void updates.run('check'),15000);check.unref();const interval=setInterval(()=>void updates.run('check'),6*60*60*1000);interval.unref();}
-  ipcMain.handle('engine:request', async (event, command, params) => {
+  ipcMain.handle('engine:request', async (event, command, params, execution) => {
     if (quitting) return {ok:false,error:{message:'Aplicativo encerrando.'}};
     trusted(event);
     if (!commands.has(command) || !params || typeof params !== 'object' || Array.isArray(params))
       return { ok: false, error: { message: 'Comando inválido.' } };
     try {
+      require('./hotkey-execution.cjs').assertExecution(execution,hotkeyRequest);
       if(startupRecoveryTest && command==='system.hello' && testHelloCalls++===0)throw new Error('Falha simulada de handshake para teste de recuperação');
       if(startupRecoveryTest && command==='devices.list' && testDeviceCalls++<2)throw new Error('Falha simulada: Enumerar endpoints MMDevice: 0xE000020B');
       const result=await engine.request(command, params);
@@ -245,6 +247,16 @@ app.whenReady().then(async () => {
     if(diagnostics.error)return {ok:false,error:{message:'Não foi possível gravar o diagnóstico: '+diagnostics.error}};
     const error=await shell.openPath(diagnostics.directory);
     return error?{ok:false,error:{message:error}}:{ok:true};
+  });
+  ipcMain.handle('diagnostics:export',async event=>{
+    trusted(event);
+    try{
+      const report=await require('./diagnostic-export.cjs').exportDiagnostics(diagnostics,[os.homedir(),app.getPath('userData'),projectsDirectory]);
+      const choice=await dialog.showSaveDialog(win,{title:'Exportar diagnóstico para revisão',defaultPath:'Nodivu-diagnostico.json',filters:[{name:'Diagnóstico JSON',extensions:['json']}]});
+      if(choice.canceled)return {ok:true,canceled:true};
+      await fs.writeFile(choice.filePath,report,{encoding:'utf8'});
+      return {ok:true};
+    }catch(error){return {ok:false,error:{message:'Não foi possível exportar: '+error.message}};}
   });
   ipcMain.on('diagnostics:renderer', (event, message) => {
     trusted(event);

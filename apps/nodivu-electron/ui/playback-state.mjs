@@ -14,6 +14,7 @@ export function audioPresentation(snapshot, devices, online, deviceIssue='') {
   if (snapshot.muted) return {title:'Tudo silenciado',message:'O áudio está ativo, mas o envio foi silenciado.',action:'unmute',label:'Restaurar som'};
   if(snapshot.capture_error)return {title:'Saída ativa · microfone indisponível',message:snapshot.capture_error.message+' O player ainda pode tocar. Confira a entrada e tente reabrir os dispositivos.',action:'activate',label:'Reabrir dispositivos',ready:true};
   if(snapshot.missing_plugins?.length)return {title:'Projeto com plugins indisponíveis',message:'Caminhos com plugins ausentes estão silenciosos; os demais continuam ativos. Reinstale ou ative em Gerenciar plugins e reabra o app. Preservados: '+[...new Set(snapshot.missing_plugins.map(p=>p.plugin_id))].join(', '),action:null,ready:true};
+  if(Object.values(snapshot.plugin_states||{}).some(s=>s.fault))return {title:'Bloco silenciado por falha',message:'Os outros ramos continuam ativos. Selecione o bloco com falha para consultar o diagnóstico. Bypass não reativa uma instância em falha.',action:null,ready:true};
   if(snapshot.signal===0)return {title:'Saída pronta · conecte os blocos',message:'O dispositivo está aberto. Conecte uma fonte à saída ou a um consumidor; o áudio passa automaticamente quando o caminho estiver pronto.',action:null,ready:true};
   return {title:'Áudio ativo',message:'Destino: '+endpoint.name,action:null,ready:true};
 }
@@ -45,6 +46,7 @@ export function playerPresentation({snapshot,node,devices,online,busy,savedPath,
   const fileState=status<0?'Falha ao carregar':labels[status]||'Estado do player desconhecido';
   let reason='';
   if(!online)reason='Backend desconectado. Reconecte para usar o player.';
+  else if(runtime?.fault)reason=runtime.fault.message;
   else if(error)reason=error;
   else if(status<0)reason=decodeFailure(status);
   else if(status===1)reason='Aguarde a decodificação. Selecionar o arquivo ainda não significa que ele está pronto.';

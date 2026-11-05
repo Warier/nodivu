@@ -7,7 +7,11 @@ use nodivu_engine::{NativeBackend, app::AppBackend};
 use std::process::ExitCode;
 
 #[cfg(windows)]
+mod instance_mailbox;
+#[cfg(windows)]
 mod plugin;
+#[cfg(windows)]
+mod plugin_fault;
 #[cfg(windows)]
 mod plugin_loader;
 #[cfg(windows)]

@@ -7,6 +7,22 @@ module.exports=async(win,manager)=>{
  const idle=()=>until('document.body.dataset.busy==="false"','busy');
  async function click(selector){await idle();await run(`document.querySelector(${JSON.stringify(selector)}).click()`);await pause(180);await idle();}
  await until('document.body.dataset.ready==="true"','boot');
+ const exportFile=path.join(path.dirname(manager.file),'diagnostic-export.json');
+ const saveDialog=require('electron').dialog,originalSave=saveDialog.showSaveDialog;
+ try{
+  saveDialog.showSaveDialog=async()=>({canceled:false,filePath:exportFile});
+  const exported=await run('window.nodivu.exportDiagnostics()');assert.equal(exported.ok,true,JSON.stringify(exported));
+  const report=JSON.parse(await fs.readFile(exportFile,'utf8'));
+  assert.equal(report.format,'nodivu-diagnostics');assert.ok(report.records.length>0);
+  assert.ok(JSON.stringify(report).includes(process.versions.electron),'runtime version is retained');
+ }finally{saveDialog.showSaveDialog=originalSave;}
+ // Exercise the real IPC gate with an expired request. This must not mutate
+ // mute even if an old renderer callback wakes after the request was retired.
+ const beforeDeadline=await run('window.nodivu.request("session.snapshot")');
+ const expired=await run(`window.nodivu.request('audio.mute',{muted:${!beforeDeadline.result.muted}},{token:'retired-smoke-token',deadline:1})`);
+ assert.equal(expired.ok,false);assert.match(expired.error.message,/Atalho expirou/);
+ assert.equal((await run('window.nodivu.request("session.snapshot")')).result.muted,beforeDeadline.result.muted);
+ console.log('PASS: diagnostic export through sandboxed preload/IPC and expired hotkey cannot mutate audio; Electron '+process.versions.electron);
  assert.ok(require('electron').Menu.getApplicationMenu().items.some(i=>i.label==='Configurações'));
  await require('./smoke.cjs')(win,true);
  await click('#palette [data-kind="gain"]');await click('#palette [data-plugin-id="org.nodivu.mp3-player"]');
@@ -25,7 +41,12 @@ module.exports=async(win,manager)=>{
  const action=[...manager.actions.values()].find(a=>a.nodeId===playerId&&a.id.endsWith('/player.toggle'));assert.ok(action);
  await run(`document.getElementById('hotkey-action').value=${JSON.stringify(action.id)};document.getElementById('hotkey-action').dispatchEvent(new Event('change'));document.getElementById('hotkey-key').value='Control+Shift+F9';document.getElementById('hotkey-form').requestSubmit();`);
  await until('document.querySelectorAll("#hotkeys-list tr").length===1','saved shortcut');
- await click('#hotkeys-close');await pause(100);
+ await run(`window.smokeHotkeyCloseEvents=0;document.getElementById('hotkeys-dialog').addEventListener('close',()=>window.smokeHotkeyCloseEvents++);`);
+ await click('#hotkeys-close');
+ // HTML dialog close -> renderer handler -> IPC -> native registration is
+ // asynchronous. Observe completion instead of assuming a 100 ms sleep.
+ for(let i=0;i<100&&manager.suspended;i++)await pause(50);
+ assert.equal(manager.suspended,false,'closing preferences must resume shortcuts within 5s: '+JSON.stringify(await run(`({open:document.getElementById('hotkeys-dialog').open,closeEvents:window.smokeHotkeyCloseEvents,status:document.getElementById('hotkeys-status').textContent})`)));
  const b=manager.config.bindings[0];assert.equal(manager.states.get(b.id),'Global ativo');assert.equal(require('electron').globalShortcut.isRegistered(b.accelerator),true);
  const generation=await run('document.body.dataset.generation');
  win.minimize();await pause(150);assert.equal(await manager.fire(b.id),true);await pause(400);
@@ -41,5 +62,12 @@ module.exports=async(win,manager)=>{
  assert.equal(await run('document.body.dataset.generation'),generation,'shortcuts must not reopen audio');
  console.log('PASS: native global registration/release, preferences form, block filter, real player pause/resume while minimized, local keyboard -> gain, absent UUID and stable audio generation.');
  await click('#hotkeys-open');await until('document.querySelectorAll("#hotkeys-list tr").length===2','preferences reopened');
+ // Escape/cancel must use the same release path as the close button.
+ await run(`document.getElementById('hotkeys-close').focus()`);
+ win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+ await until('!document.getElementById("hotkeys-dialog").open','Escape closes preferences');
+ assert.equal(manager.suspended,false,'Escape resumes native shortcuts');
+ await click('#hotkeys-open');
+ console.log('PASS: closing preferences by button/Escape resumes shortcuts without depending on a rendered close event.');
  try{await fs.writeFile(path.resolve(__dirname,'../../hotkeys.png'),(await win.webContents.capturePage()).toPNG());}catch(e){console.log('Visual capture unavailable: '+e.message);}
 };

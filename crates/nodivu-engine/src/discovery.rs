@@ -132,6 +132,8 @@ pub trait DeviceBackend {
             std::io::Error::from(std::io::ErrorKind::Unsupported),
         ))
     }
+    /// Fixed with the catalog for this backend's lifetime. A package/latency
+    /// reload requires a new AppBackend, rather than changing during polling.
     fn plugin_latency(&self, _id: &str) -> u32 {
         0
     }
@@ -161,6 +163,7 @@ pub trait DeviceBackend {
             std::io::Error::from(std::io::ErrorKind::Unsupported),
         ))
     }
+    /// Immutable for this backend's lifetime; runtime state belongs in plugin_runtime.
     fn plugin_catalog(&self) -> serde_json::Value {
         serde_json::json!([])
     }

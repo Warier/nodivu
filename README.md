@@ -10,18 +10,27 @@ O projeto está em fase experimental. Este repositório contém o código necess
 
 ## Baixar
 
-[Instalador 0.2.0 para Windows x64](https://github.com/Warier/nodivu/releases/download/v0.2.0/Nodivu-0.2.0-windows-x64-setup.exe) · [Notas e checksums](https://github.com/Warier/nodivu/releases/tag/v0.2.0).
+[Instalador 0.2.2 para Windows x64](https://github.com/Warier/nodivu/releases/download/v0.2.2/Nodivu-0.2.2-windows-x64-setup.exe) · [Notas e checksums](https://github.com/Warier/nodivu/releases/tag/v0.2.2).
 
-Quem usa 0.1.3-beta.1 pode procurar atualizações em **Sistema**. Projetos e plugins do perfil são preservados. A instalação do VB-CABLE continua opcional e separada do motor; não mudamos dispositivos padrão do Windows.
+Quem usa 0.1.3-beta.1 ou 0.2.0 pode procurar atualizações em **Sistema**. O app verifica novas versões ao abrir; download e reinício exigem confirmação para preservar o trabalho e o áudio em andamento. Projetos e plugins do perfil são preservados. A instalação do VB-CABLE continua opcional e separada do motor; não mudamos dispositivos padrão do Windows.
 
-## Novidades da 0.2.0
+## Novidades da 0.2.2
+
+- Atalhos globais e por bloco para player, ganho, bypass, silêncio e Escuta; macros de mouse podem ser remapeadas para F13–F24.
+- Correção da retomada de atalhos ao fechar as configurações e bloqueio de etapas de comandos expirados.
+- Player 1.0.1 cancela cargas substituídas cooperativamente, descarta resultados antigos e libera o áudio anterior antes de decodificar outro arquivo.
+- Falhas recuperáveis ou amostras inválidas de plugins silenciam somente a instância afetada, preservando os ramos saudáveis.
+- Exportação de diagnóstico em **Ajuda**, atualização de dependências e melhorias no controle de processos auxiliares e no envio de estado.
+- Host API 2 para os plugins Ducking e Botão de fala.
+
+## Estúdio e plugins
 
 - Estúdio com blocos compactos, biblioteca por categorias recolhíveis/redimensionável, inspetor móvel e configurações ampliadas de plugins.
 - Gerenciador local: pasta/ZIP, documentação, ativação, versões/retorno, download verificável, cancelamento/progresso e limpeza de cache.
 - Limpeza de voz RNNoise na CPU (30 ms) e limitador de picos (5 ms), com intensidade/teto no bloco e ajustes no inspetor. Latências nativas e bypass são alinhados pelo Mixer.
 - Projetos abrem mesmo com plugins ausentes/desativados: parâmetros, fios e recursos ficam preservados; somente os caminhos dependentes ficam silenciosos.
 
-O cliente de catálogo assinado está implementado e testado, mas **o catálogo público ainda não está publicado**. Explorar exige uma origem de confiança distribuída pelo mantenedor; para esta versão, os quatro plugins principais acompanham o app e outros podem ser adicionados localmente. Instâncias ainda usam um pool limitado (oito tipos habilitados/oito blocos no grafo). Não há isolamento de crash de DLL nem loja de modelos de IA pesados.
+O catálogo público experimental oferece **Ducking** e **Botão de fala**, com metadados assinados e README na loja. Os quatro plugins principais acompanham o app; outros podem ser instalados pela loja ou importados localmente. Os dois exemplos exigem host API 2, incluído na 0.2.2. Instâncias ainda usam um pool limitado (oito tipos habilitados/oito blocos no grafo). Erros recuperáveis de processamento silenciam o bloco afetado; não há isolamento de crash de DLL nem loja de modelos de IA pesados.
 
 ## Por que Nodivu?
 
@@ -113,7 +122,7 @@ Autores de plugins podem organizar configurações em abas/grupos, separar contr
 
 ## Desenvolver a interface, inclusive no Linux
 
-A interface usa **Electron 44.2.0, JavaScript, HTML, CSS e SVG**, sem React, TypeScript ou bundler. `main.cjs` gerencia janelas e o backend; `preload.cjs` expõe a ponte limitada; `ui/renderer.js`, `ui/blocks/`, `ui/style.css` e `ui/viewport.js` implementam o editor.
+A interface usa **Electron 44.9.3, JavaScript, HTML, CSS e SVG**, sem React, TypeScript ou bundler. `main.cjs` gerencia janelas e o backend; `preload.cjs` expõe a ponte limitada; `ui/renderer.js`, `ui/blocks/`, `ui/style.css` e `ui/viewport.js` implementam o editor.
 
 ```sh
 cd apps/nodivu-electron
@@ -173,7 +182,7 @@ Essa funcionalidade está no código de desenvolvimento, **fora do release 0.1.3
 
 O Estúdio agora tem **Sistema → Plugins instalados** e **Gerenciar plugins** na biblioteca. Nesta primeira etapa, **Adicionar pasta local** importa uma pasta que contenha `plugin.json` e sua biblioteca `.clap`. Não é preciso compilar o Nodivu de novo. Confira a origem do pacote antes de instalar código nativo.
 
-Ativação, desativação e remoção ficam pendentes até fechar e abrir o app; salve o projeto antes. A remoção pode ser cancelada antes de reiniciar e arquiva os arquivos, sem apagar projetos. Pacotes que acompanham o app podem ser desativados. Também aceita ZIP/.nodivu-plugin, README com imagens locais e atualização de pacotes versionados com retorno à versão anterior. As abas Explorar e Atualizações já consomem catálogos assinados TUF; a origem pública ainda não está publicada. Veja [cliente da loja e publicação](PLUGIN-STORE.md). Veja [regras e limites do gerenciamento local](PLUGIN-UI.md#gerenciamento-local-de-pacotes).
+Ativação, desativação e remoção ficam pendentes até fechar e abrir o app; salve o projeto antes. A remoção pode ser cancelada antes de reiniciar e arquiva os arquivos, sem apagar projetos. Pacotes que acompanham o app podem ser desativados. Também aceita ZIP/.nodivu-plugin, README com imagens locais e atualização de pacotes versionados com retorno à versão anterior. As abas Explorar e Atualizações consomem o catálogo público experimental com metadados TUF. Veja [cliente da loja e publicação](PLUGIN-STORE.md) e [regras e limites do gerenciamento local](PLUGIN-UI.md#gerenciamento-local-de-pacotes).
 
 Para recompilar apenas um plugin, a partir da raiz:
 
@@ -199,6 +208,10 @@ O [worker Python](examples/python-worker/) demonstra processamento fora do callb
 Desde 0.1.2, microfones comuns não precisam estar configurados em 44,1/48 kHz: PCM de 8/16/24/32 bits e float32 têm conversão automática, incluindo 16 kHz. Taxas altas e mais canais usam o conversor do Windows. Há limites de segurança (8–384 kHz, até 32 canais); a negociação depende do driver. Erros incluem formato observado e etapa. Se somente o microfone falhar, o player e as demais fontes continuam; use **Reabrir dispositivos** para tentar a entrada novamente.
 
 Desde a versão 0.1.1, **Abrir logs de diagnóstico** abre a pasta de registros locais. No aplicativo instalado ela fica em `%APPDATA%\Nodivu\logs`; em desenvolvimento, em `.local/electron-profile/logs`. Há dois arquivos rotativos, `nodivu.log` e `nodivu.previous.log`, de até 1 MiB cada. Eles registram versão do app/Windows, inicialização, falhas do backend e descoberta de dispositivos. Nenhum áudio é gravado ou enviado automaticamente. Mensagens do Windows podem conter nomes, IDs ou caminhos; revise os arquivos antes de compartilhá-los.
+
+Na versão **0.2.2**, **Ajuda → Exportar diagnóstico…** salva um JSON separado, reduzindo caminhos pessoais conhecidos e substituindo GUIDs/SIDs por identificadores consistentes dentro do relatório. Os logs originais ficam preservados; HRESULT, versão e etapa permanecem legíveis. Revise o arquivo antes de enviar: mensagens livres ainda podem conter nomes ou dados pessoais. Nada é enviado automaticamente.
+
+Se um plugin devolver erro de processamento ou áudio inválido, o bloco exibe a falha e sua saída é silenciada; ramos saudáveis continuam. Ligar bypass não recupera uma instância em falha. Remova e recrie o bloco para usar outra instância ou salve o projeto e reconecte o motor. Workers Python têm reinício explícito. Isso não contém um crash ou travamento de DLL; veja a [política de falhas](PLUGIN-NATIVE.md#política-de-falha-de-processamento-021-dev3).
 
 Uma falha na descoberta de áudio não impede editar/salvar o grafo. A faixa superior mostra a causa e oferece **Tentar detectar novamente**. Se acabou de instalar o VB-CABLE, reinicie o Windows antes de repetir o teste. Aparecer nas opções do sistema não garante que todas as consultas ao dispositivo já estejam prontas.
 
@@ -260,11 +273,11 @@ Gates adicionais: `./scripts/Test-AudioCleanup.ps1` (DSP sem dispositivos) e `no
 
 ## Plugins independentes e catálogo de teste
 
-O desenvolvimento posterior à 0.2.0 inclui [catálogo público experimental](https://github.com/Warier/nodivu-plugins), [Ducking](https://github.com/Warier/nodivu-ducking) e [Botão de fala](https://github.com/Warier/nodivu-talk-button). No app atualizado, abra Gerenciar plugins → Explorar, instale e reabra. A release original 0.2.0 precisa de atualização do host antes de usar estes pacotes API 2. Nenhuma release nova do aplicativo foi gerada automaticamente. [Contrato nativo e comandos de validação](PLUGIN-NATIVE.md).
+A versão 0.2.2 inclui [catálogo público experimental](https://github.com/Warier/nodivu-plugins), [Ducking](https://github.com/Warier/nodivu-ducking) e [Botão de fala](https://github.com/Warier/nodivu-talk-button). No app atualizado, abra Gerenciar plugins → Explorar, instale e reabra. A release original 0.2.0 precisa de atualização do host antes de usar estes pacotes API 2. [Contrato nativo e comandos de validação](PLUGIN-NATIVE.md).
 
 ## Atalhos globais e por bloco
 
-No desenvolvimento 0.2.1-dev.2, use **Configurações → Atalhos de teclado** no menu superior.
+Na versão 0.2.2, use **Configurações → Atalhos de teclado** no menu superior.
 Escolha a ação de um Player (play/pause, reproduzir, reiniciar ou parar), pressione uma combinação
 como **Ctrl+Shift+F8**, selecione **Global**, adicione e feche a configuração. Minimize o Nodivu
 para testar em outro programa. O projeto deve ter arquivo carregado, conexões e saída válidas.

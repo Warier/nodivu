@@ -11,9 +11,20 @@ struct State {
     devices: Vec<DeviceInfo>,
     attempts: Vec<(Option<DeviceId>, DeviceId)>,
     enumeration_failed: bool,
+    catalog_reads: usize,
+    runtime_reads: usize,
 }
 struct FakeBackend(Rc<RefCell<State>>, u128);
 impl DeviceBackend for FakeBackend {
+    fn plugin_catalog(&self) -> Value {
+        self.0.borrow_mut().catalog_reads += 1;
+        json!([])
+    }
+    fn plugin_runtime(&self) -> Value {
+        let mut state = self.0.borrow_mut();
+        state.runtime_reads += 1;
+        json!({"test_tick": state.runtime_reads})
+    }
     fn enumerate(&mut self) -> Result<Vec<DeviceInfo>, BackendError> {
         if self.0.borrow().enumeration_failed {
             return Err(BackendError::new(
@@ -37,6 +48,71 @@ impl DeviceBackend for FakeBackend {
             std::io::Error::other("no hardware"),
         ))
     }
+}
+
+#[test]
+fn snapshot_reuses_structure_but_refreshes_runtime_and_tracks_suspended_edits() {
+    let state = Rc::new(RefCell::new(State::default()));
+    let mut app = AppBackend::new(FakeBackend(state.clone(), 0));
+    let tone = Uuid::from_u128(1);
+    let output = Uuid::from_u128(2);
+    let missing = Uuid::from_u128(3);
+    let project = json!({"format":"nodivu-project","version":1,
+        "graph":{"schema_version":2,"nodes":[
+            {"id":tone,"block":{"kind":"tone","enabled":true}},
+            {"id":output,"block":{"kind":"output","endpoint_id":"offline"}},
+            {"id":missing,"block":{"kind":"plugin","plugin_id":"missing","source":true,"parameters":{},"bypass":false}}
+        ],"edges":[{"from":tone,"to":output}]},
+        "positions":[{"node_id":tone,"x":0,"y":0},{"node_id":output,"x":100,"y":0},{"node_id":missing,"x":200,"y":0}],
+        "camera":{"x":0,"y":0,"scale":1},"resources":[]});
+    let loaded = call(
+        &mut app,
+        "project.open",
+        json!({"expected_revision":0,"contents":project.to_string()}),
+    )
+    .unwrap();
+    let snapshot = &loaded["snapshot"];
+    assert_eq!(snapshot["signal"], 2);
+    assert_eq!(snapshot["missing_plugins"][0]["node_id"], json!(missing));
+    let reads = state.borrow().catalog_reads;
+    let mut tick = snapshot["plugin_states"]["test_tick"].as_u64().unwrap();
+    for _ in 0..100 {
+        let s = app.snapshot();
+        assert_eq!(s["signal"], 2);
+        assert_eq!(s["missing_plugins"], snapshot["missing_plugins"]);
+        let next = s["plugin_states"]["test_tick"].as_u64().unwrap();
+        assert!(next > tick, "transport/metrics must remain live");
+        tick = next;
+    }
+    assert_eq!(
+        state.borrow().catalog_reads,
+        reads,
+        "polling must not rebuild the execution projection"
+    );
+    assert_eq!(
+        call(&mut app, "audio.mute", json!({"muted":true})).unwrap()["signal"],
+        0
+    );
+    assert_eq!(
+        call(&mut app, "audio.mute", json!({"muted":false})).unwrap()["signal"],
+        2
+    );
+    let mut graph = snapshot["graph"].clone();
+    graph["edges"] = json!([]);
+    graph["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|n| n["id"] != json!(missing));
+    let edited = call(
+        &mut app,
+        "graph.apply",
+        json!({"expected_revision":snapshot["revision"],"graph":graph}),
+    )
+    .unwrap();
+    assert_eq!(edited["signal"], 0);
+    assert_eq!(edited["missing_plugins"], json!([]));
+    assert_eq!(edited["suspended"], true);
+    assert!(state.borrow().attempts.is_empty());
 }
 fn call(
     app: &mut AppBackend<FakeBackend>,

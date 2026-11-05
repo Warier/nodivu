@@ -14,6 +14,14 @@ function fixture(){
  const snapshot={engine_state:'running',suspended:false,muted:false,graph:{nodes:[node,{id:'out',block:{kind:'output',endpoint_id:'phones'}}],edges:[{from:'player',to:'out'}]},plugin_states:{player:{file:'C:/clip.mp3',status:2}}};
  return {snapshot,node,devices:[device],online:true,busy:false};
 }
+test('a quarantined plugin explains silence and cannot enable Play or disappear through bypass',async()=>{
+ const {playerPresentation:show,audioPresentation:audio}=await import(modulePath);
+ const f=fixture();f.snapshot.plugin_states.player.fault={message:'Plugin em falha; bloco silenciado.'};
+ f.node.block.bypass=true;
+ assert.equal(show(f).canPlay,false);assert.match(show(f).reason,/Plugin em falha/);
+ assert.equal(audio(f.snapshot,f.devices,true).ready,true);
+ assert.match(audio(f.snapshot,f.devices,true).title,/silenciado por falha/);
+});
 test('Play exige arquivo, dispositivo ativo e caminho; preparação transitória não autoriza Play',async()=>{
  const {playerPresentation:show,audioPresentation:audio}=await import(modulePath);
  const f=fixture();assert.equal(show(f).canPlay,true);
