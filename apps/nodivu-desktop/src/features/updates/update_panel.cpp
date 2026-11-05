@@ -94,6 +94,18 @@ UpdatePanel::UpdatePanel(const QString& profile, const QString& source, QWidget*
         if (busy_)
             timer->start();
     });
+    // Automatic checks only; downloading and installation remain explicit user actions.
+    auto* periodic = new QTimer(this);
+    periodic->setInterval(6 * 60 * 60 * 1000);
+    const auto check = [this] {
+        if (!busy_ && !offer_.available && offer_.installer.isEmpty())
+            run(false);
+    };
+    connect(periodic, &QTimer::timeout, this, check);
+    if (service_) {
+        periodic->start();
+        QTimer::singleShot(15000, this, check);
+    }
     updateAction();
 }
 UpdatePanel::~UpdatePanel() {
@@ -147,6 +159,8 @@ void UpdatePanel::run(bool download) {
                       .arg(offer_.notes)
                 : QStringLiteral("Nenhuma versão mais recente disponível neste canal."));
         updateAction();
+        if (offer_.available && offer_.error.isEmpty() && offer_.installer.isEmpty())
+            emit updateAvailable(offer_.version);
     });
     watcher->setFuture(
         QtConcurrent::run(&pool_, [service = service_, progress = progress_, download] {

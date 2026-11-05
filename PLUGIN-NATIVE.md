@@ -66,6 +66,40 @@ Os exemplos não acompanham o instalador: são entregues pela loja/importação 
 
 ## Verificação
 
+### Política de falha de processamento (0.2.1-dev.3)
+
+Se `process` retornar erro ou produzir NaN/Infinity, o host silencia a saída daquela
+instância e publica `plugin_states[UUID].fault` com `kind`, `code` e `message`.
+Os outros ramos do grafo continuam. **Falha nunca ativa bypass automático**, e mudar
+o controle de bypass de uma instância já em falha não libera o sinal original.
+Isso é especialmente importante em efeitos de voz/privacidade. Rotas paralelas que
+o usuário conectou deliberadamente continuam sendo rotas independentes.
+
+A instância nativa falha fica em quarentena até reconectar o motor. Remover e recriar
+o bloco usa outra instância saudável, se disponível; esgotar o pool exige salvar o
+projeto e reconectar. O diagnóstico não é herdado por outro UUID. O erro é retido
+fora da interface; não há formatação de mensagens nem destruição do erro no callback.
+Workers Python em falha também silenciam com bypass ligado, mas podem recuperar
+o transporte após o comando explícito de reinício.
+
+Esse tratamento cobre erros devolvidos pelo processamento. Não contém DLL travada,
+violação de memória, crash de processo ou falha global ao preparar/resetar o motor.
+Plugins continuam executando com os direitos do usuário: não se trata de sandbox.
+
+Regressões opt-in usam WASAPI real, sinais sintéticos e saída atenuada em 60 dB:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-ClapFixture.ps1
+node scripts/check-plugin-faults.cjs
+node scripts/check-worker-fault.cjs C:/Python312/python.exe
+```
+
+Informe no último comando o caminho do seu Python. Os ensaios não mudam dispositivos
+padrão nem volumes do Windows. A fixture CLAP inclui retornos de erro e NaN deliberados;
+não distribua os pacotes de teste da pasta `.local` como plugins para usuários.
+
+### Demais ensaios
+
 `cargo test --workspace --all-targets --locked` inclui isolamento entre portas e silêncio
 da referência desconectada. `utility_probe` carrega as duas DLLs reais e verifica redução,
 bypass, reset e eventos com quantums variáveis. Depois de compilar os dois repos irmãos:

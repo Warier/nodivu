@@ -12,7 +12,7 @@ static const clap_plugin_descriptor_t descriptor = {
     "",
     "",
     "",
-    "0.2.0",
+    "1.0.1",
     "MP3, WAV e M4A com transporte",
     features};
 struct Instance {

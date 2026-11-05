@@ -28,6 +28,8 @@ target_include_directories(nodivu_zip SYSTEM PUBLIC ../../third_party/miniz-3.1.
 find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Core Gui Widgets Network Concurrent)
 
 add_library(nodivu_frontend_core STATIC
+    src/platform/diagnostic_export.cpp
+    src/platform/diagnostic_export.hpp
     src/platform/install_transaction.cpp
     src/platform/install_transaction.hpp
     src/platform/profile_backup.cpp
@@ -54,6 +56,9 @@ target_link_libraries(nodivu_frontend_core PUBLIC Qt6::Core Qt6::Network nodivu_
 target_compile_definitions(nodivu_frontend_core PUBLIC QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII)
 
 add_library(nodivu_frontend_ui STATIC
+    src/features/hotkeys/hotkey_service.hpp
+    src/features/hotkeys/hotkey_service.cpp
+    src/features/hotkeys/hotkey_dialog.cpp
     src/ui/dialogs/pending_changes_dialog.cpp
     src/ui/dialogs/pending_changes_dialog.hpp
     src/features/graph/routing_panel.cpp

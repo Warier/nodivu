@@ -16,15 +16,13 @@ SetCompressor /SOLID lzma
   !ifdef UPDATE_TEST
     !error "UPDATE_TEST requires MIGRATION_TEST"
   !endif
-  !define APP_GUID "97ab4969-abe1-5c91-bf9d-ddc217a0e511"
-  !define PRODUCT_NAME "Nodivu"
+  !define APP_GUID "Nodivu.Qt.Alternative"
+  !define PRODUCT_NAME "Nodivu Qt"
 !endif
 !define INSTALL_KEY "Software\${APP_GUID}"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_GUID}"
 !define LEGACY_INNO_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{C4F2A6B0-FF2A-45ED-9CD0-B964E50B4754}_is1"
-!ifndef MIGRATION_TEST
-  Var LegacyNodivuDir
-!endif
+
 Name "${PRODUCT_NAME}"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\${PRODUCT_NAME}"
@@ -58,14 +56,7 @@ Function .onInit
     Abort
   ${EndIf}
   SetShellVarContext current
-!ifndef MIGRATION_TEST
-  ReadRegStr $LegacyNodivuDir HKCU "${LEGACY_INNO_KEY}" "InstallLocation"
-  ${If} $LegacyNodivuDir != ""
-  ${AndIf} ${FileExists} "$LegacyNodivuDir\nodivu-electron.exe"
-    GetFullPathName $LegacyNodivuDir "$LegacyNodivuDir\."
-    StrCpy $INSTDIR $LegacyNodivuDir
-  ${EndIf}
-!endif
+
   ; Do not replace files held by either frontend. No forced process termination.
   IfFileExists "$INSTDIR\nodivu.exe" 0 +5
     ClearErrors
@@ -116,14 +107,7 @@ Section "Nodivu" Main
     Abort
   ${EndIf}
 !ifndef MIGRATION_TEST
-  CreateDirectory "$DOCUMENTS\Nodivu\Projetos"
-  GetFullPathName $R0 "$INSTDIR\."
-  ${If} $LegacyNodivuDir != ""
-  ${AndIf} $LegacyNodivuDir == $R0
-    DeleteRegKey HKCU "${LEGACY_INNO_KEY}"
-    Delete "$SMPROGRAMS\Nodivu\Nodivu.lnk"
-    RMDir "$SMPROGRAMS\Nodivu"
-  ${EndIf}
+  CreateDirectory "$DOCUMENTS\Nodivu\Projetos-Qt"
 !endif
 SectionEnd
 Section "Uninstall"

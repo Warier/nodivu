@@ -448,7 +448,8 @@ JsonResult TufClient::findTarget(const QJsonObject& role, const QString& target,
     return {};
 }
 TransferResult TufClient::target(const QString& name, qint64 maximumBytes,
-                                 TransferProgress* progress, qint64 expectedLength) {
+                                 TransferProgress* progress, qint64 expectedLength,
+                                 bool allowReleaseTarget) {
     TransferResult rejected;
     if (!online_ || !PackageService::safeRelativePath(name) || maximumBytes < 0 ||
         maximumBytes > 256LL * 1024LL * 1024) {
@@ -505,14 +506,45 @@ TransferResult TufClient::target(const QString& name, qint64 maximumBytes,
         const auto slash = name.lastIndexOf(QLatin1Char('/'));
         remote = name.left(slash + 1) + hash + QLatin1Char('.') + name.mid(slash + 1);
     }
-    auto result = NetworkTransfer::get(
-        appendPath(QUrl(source_.value(QStringLiteral("target_url")).toString()), remote), length,
-        progress, allowLoopback_, destination, info.object);
+    auto url = appendPath(QUrl(source_.value(QStringLiteral("target_url")).toString()), remote);
+    const auto releaseUrl = info.object.value(QStringLiteral("custom"))
+                                .toObject()
+                                .value(QStringLiteral("download_url"))
+                                .toString();
+    if (!releaseUrl.isEmpty()) {
+        // Only application updates opt in; the URL itself is covered by targets signatures.
+        // Bootstrap pins the repository, while TUF pins the exact length and content hash.
+        if (!allowReleaseTarget ||
+            !validReleaseUrl(QUrl(releaseUrl),
+                             source_.value(QStringLiteral("release_repository")).toString())) {
+            rejected.error = QStringLiteral("Origem de release fora do repositório autorizado.");
+            return rejected;
+        }
+        url = QUrl(releaseUrl);
+    }
+    auto result =
+        NetworkTransfer::get(url, length, progress, allowLoopback_, destination, info.object);
     if (result.ok() && length <= 2LL * 1024 * 1024)
         result.bytes = boundedRead(destination, length);
     if (result.ok())
         result.authenticated = info.object;
     return result;
+}
+bool TufClient::validReleaseUrl(const QUrl& url, const QString& repository) {
+    static const QRegularExpression repo(QStringLiteral("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"));
+    if (!repo.match(repository).hasMatch() || url.scheme() != QStringLiteral("https") ||
+        url.host() != QStringLiteral("github.com") || url.port(-1) != -1 ||
+        !url.userInfo().isEmpty() || url.hasQuery() || url.hasFragment())
+        return false;
+    const auto prefix = QLatin1Char('/') + repository + QStringLiteral("/releases/download/");
+    const auto path = url.path();
+    if (!path.startsWith(prefix))
+        return false;
+    const auto parts = path.mid(prefix.size()).split(QLatin1Char('/'));
+    static const QRegularExpression tag(QStringLiteral("^v[0-9]+\\.[0-9]+\\.[0-9]+-qt\\.[0-9]+$"));
+    static const QRegularExpression file(
+        QStringLiteral("^Nodivu-[0-9]+\\.[0-9]+\\.[0-9]+-windows-x64-qt-setup\\.exe$"));
+    return parts.size() == 2 && tag.match(parts[0]).hasMatch() && file.match(parts[1]).hasMatch();
 }
 QStringList TufClient::officialPublishers() const {
     QStringList result;

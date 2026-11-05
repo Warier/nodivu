@@ -1,45 +1,41 @@
-# Atualizações do aplicativo
+# Atualizações da edição Qt
 
-O atualizador usa TUF com Ed25519 e uma autoridade separada da loja de plugins. O canal público do aplicativo ainda não está configurado neste repositório. Sem a configuração, a interface informa o motivo e desativa a verificação.
+A edição alternativa usa **Nodivu Qt**, perfil `%APPDATA%/NodivuQt`, instalação `%LOCALAPPDATA%/Programs/Nodivu Qt` e projetos em `Documentos/Nodivu/Projetos-Qt`. Não instala sobre o Electron por padrão. Não há migração automática de perfil. Abra uma cópia do projeto para comparar as edições.
 
-Atualizações ficam em Sistema → Aplicativo. O usuário solicita a verificação, escolhe baixar e confirma a instalação. Abrir o painel não inicia consultas, downloads ou instalações. Operações do projeto precisam terminar antes da instalação.
+## Canal público
 
-## Configuração do canal
+- Releases Qt: tag `v<VERSÃO>-qt.1`, marcadas como **prerelease**, sem alterar `latest` do Electron. Versão interna: `MAJOR.MINOR.PATCH`.
+- Metadados: branch `qt-updates` de `Warier/nodivu`, servidos via HTTPS por `raw.githubusercontent.com`. Não precisa servidor dedicado.
+- Bootstrap público: `resources/updates/source.json`, embutido no pacote. Raiz Ed25519 própria; independente da loja de plugins.
+- O Qt consulta `windows-x64/stable.json` 15 segundos após abrir e a cada seis horas. Aqui `stable` é exclusivamente o canal Qt; não é o `latest.yml` do Electron.
+- Download e reinício exigem clique e confirmação. Projeto com mudanças segue a confirmação normal. Não há instalação silenciosa, encerramento forçado ou elevação pelo app.
+- A oferta, URL, tamanho e hashes do instalador são assinados em TUF. O instalador reside nos assets da release; somente URLs Qt do repositório fixado no bootstrap são aceitas. Limite: 256 MiB. Redirects exigem HTTPS; bytes finais continuam sujeitos ao tamanho/hash assinado.
+- O helper espera o processo encerrar, verifica novamente o SHA256 e abre o instalador. Perfil/documentos não são parte da substituição de binários.
 
-Inclua `resources/updates/source.json` antes de gerar o pacote; o CMake instala esse arquivo quando ele existe. O bootstrap tem esta estrutura:
+## Publicar / renovar
 
-```json
-{
-  "schema_version": 1,
-  "official_publishers": [],
-  "metadata_url": "https://updates.example.org/metadata/",
-  "target_url": "https://updates.example.org/targets/",
-  "root": "<JSON serializado da root pública assinada do aplicativo>"
-}
+Ferramenta de mantenedor (Node 22+ ou 24, não embarcado no aplicativo):
+
+```powershell
+# Executar init somente uma vez para um NOVO canal. Nunca trocar a raiz por conveniência.
+node scripts/qt/publish-updates.cjs init C:/caminho/qt-update-feed C:/privado/qt-update-keys
+# Copiar somente source.json para apps/nodivu-desktop/resources/updates/source.json antes de compilar.
+./scripts/Build-Desktop.ps1 -Test
+./scripts/qt/Package-Desktop.ps1 -Installer
+# Publicar o instalador como prerelease v0.2.2-qt.1. Após verificar o asset público:
+node scripts/qt/publish-updates.cjs publish C:/caminho/qt-update-feed C:/privado/qt-update-keys C:/caminho/Nodivu-0.2.2-windows-x64-qt-setup.exe 0.2.2 v0.2.2-qt.1
+# Revisar/commitar/push APENAS metadados, oferta e bootstrap na branch qt-updates.
 ```
 
-O exemplo é ilustrativo. A root contém chaves públicas e thresholds próprios para root, targets, snapshot e timestamp. Não reutilize as chaves da loja nem trate o feed YAML do Electron como autoridade confiável. Chaves privadas ficam fora do repositório, pacote, perfil e GUI. Publicação, rotação e custódia pertencem à operação de release.
+O diretório privado fica fora dos dois repositórios. Chaves criptografadas com DPAPI CurrentUser; não publicar `keys.dpapi`. A publicação verifica a identidade das quatro chaves. Renovar **timestamp antes de 14 dias**, snapshot 30 dias, targets 90 dias; a raiz inicial vence em 365 dias. Cada publicação incrementa revisões. O tool atual renova os três papéis, mas **rotação da raiz e backup portátil das chaves ainda precisam de procedimento operacional próprio**. Perder a chave DPAPI pode exigir distribuição manual; manter backup seguro do perfil/custódia. Não copiar as chaves da loja.
 
-O target assinado `windows-x64/stable.json` ou `windows-x64/beta.json` contém:
+Sonda de mantenedor `public_update_probe --source resources/updates/source.json --current 0.2.1 --download` autentica o canal e baixa em perfil temporário sem instalar. A versão atual deve retornar `available:false`. Testes locais de TUF cobrem expiração, rollback, assinatura e adulteração; `Test-Installer.ps1 -ViaUpdater` usa autoridade efêmera e identidade isolada, sem tocar no app instalado.
 
-```json
-{
-  "schema_version": 1,
-  "platform": "win32-x64",
-  "channel": "stable",
-  "version": "0.3.0",
-  "installer": "windows-x64/Nodivu-0.3.0-setup.exe",
-  "bytes": 14000000,
-  "notes": "Descrição da versão."
-}
-```
+## Limites
 
-O instalador também deve ser um target TUF com comprimento e SHA256 assinados. São aceitos até 256 MiB, caminhos relativos seguros terminados em `-setup.exe`, notas de até 8192 caracteres e versão posterior à atual. Stable não aceita prerelease. As versões aceitas são `MAJOR.MINOR.PATCH`, `-beta.N` e `-dev.N`.
+A primeira edição Qt requer instalação manual; o canal prepara as próximas atualizações Qt. Não converte automaticamente usuários Electron. Assinatura TUF autentica conteúdo, mas não é certificado Authenticode/SmartScreen. Testes Windows 11/PC limpo e atualização real entre duas futuras versões públicas Qt permanecem aceites separados.
 
-## Download e instalação
+## Referências
 
-Consulta e download usam HTTPS, validade e versões dos metadados, rotação de root e verificação de hashes e comprimentos. A confiança fica em `profile/updates/trust`, separada dos plugins. O arquivo é gravado atomicamente, e a cópia em `updates/downloads` é conferida novamente. Arquivos incompletos não são executados.
-
-Ao confirmar a instalação, o aplicativo trata alterações não salvas e encerra o backend. O helper Win32 aguarda o PID original terminar, recalcula o SHA256 e abre o instalador interativo por usuário. Não encerra processos à força, não eleva privilégios e não recebe comandos de shell ou URLs remotas.
-
-As suítes de atualização, helper e instalação cobrem ofertas inválidas, downgrade, caminhos, limites, hashes e recuperação de transações. A distribuição pelo canal público e o upgrade entre versões Qt publicadas ainda exigem validação operacional.
+- [WM_HOTKEY / Qt native events](https://doc.qt.io/qt-6/qabstractnativeeventfilter.html)
+- [Releases GitHub](https://docs.github.com/en/rest/releases/releases)

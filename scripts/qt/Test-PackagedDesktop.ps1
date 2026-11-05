@@ -15,16 +15,22 @@ New-Item -ItemType Directory -Path $nodivuEvidence -Force | Out-Null
 $nodivuScreenshot = Join-Path $nodivuEvidence 'qt-packaged-final.png'
 $nodivuExecutable = Join-Path $nodivuStage 'nodivu.exe'
 $nodivuOriginalPath = $env:PATH
+$nodivuOriginalParser = $env:QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES
 try {
     $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
+    $env:QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES = "1"
     $nodivuStarted = [DateTime]::UtcNow
     # GUI subsystem executables need an explicit wait in PowerShell. Otherwise
     # LASTEXITCODE can still belong to an earlier console program.
-    $nodivuProcess = Start-Process -FilePath $nodivuExecutable -ArgumentList @('--portable','--smoke-test','--screenshot',('"' + $nodivuScreenshot + '"')) -WindowStyle Hidden -Wait -PassThru
+    $nodivuProcess = Start-Process -FilePath $nodivuExecutable -ArgumentList @('--portable','--smoke-test','--screenshot',('"' + $nodivuScreenshot + '"')) -WindowStyle Hidden -PassThru
+    if (!$nodivuProcess.WaitForExit(60000)) { throw "Timeout no ensaio do pacote, PID $($nodivuProcess.Id)." }
+    $nodivuProcess.Refresh()
     if ($nodivuProcess.ExitCode -ne 0) { throw "Smoke do pacote falhou: $($nodivuProcess.ExitCode)" }
     $nodivuCapture = Get-Item -LiteralPath $nodivuScreenshot
     if ($nodivuCapture.Length -eq 0 -or $nodivuCapture.LastWriteTimeUtc -lt $nodivuStarted.AddSeconds(-1)) { throw 'O ensaio não produziu uma captura nova.' }
-    $nodivuProcess = Start-Process -FilePath $nodivuExecutable -ArgumentList @('--portable','--repository',('"' + $nodivuRoot + '"')) -WindowStyle Hidden -Wait -PassThru
+    $nodivuProcess = Start-Process -FilePath $nodivuExecutable -ArgumentList @('--portable','--repository',('"' + $nodivuRoot + '"')) -WindowStyle Hidden -PassThru
+    if (!$nodivuProcess.WaitForExit(60000)) { throw "Timeout no ensaio do pacote, PID $($nodivuProcess.Id)." }
+    $nodivuProcess.Refresh()
     if ($nodivuProcess.ExitCode -ne 2) { throw "Opções incompatíveis não foram recusadas: $($nodivuProcess.ExitCode)" }
-} finally { $env:PATH = $nodivuOriginalPath }
+} finally { $env:PATH = $nodivuOriginalPath; $env:QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES = $nodivuOriginalParser }
 Write-Output 'PASS: inventário, execução com DLLs próprias, projeto/screenshot/shutdown e opções incompatíveis.'

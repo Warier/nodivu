@@ -13,7 +13,7 @@ AppPaths AppPaths::development(const QString& repository) {
         root.absoluteFilePath(QStringLiteral(".local/qt-profile")),
         root.absoluteFilePath(QStringLiteral(".local/qt-profile/plugins")),
         QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation))
-            .filePath(QStringLiteral("Nodivu/Projetos")),
+            .filePath(QStringLiteral("Nodivu/Projetos-Qt")),
         root.absoluteFilePath(QStringLiteral("apps/nodivu-desktop/resources/store/source.json")),
         root.absoluteFilePath(QStringLiteral(".local/plugins")),
         root.absoluteFilePath(QStringLiteral("apps/nodivu-desktop/resources/updates/source.json")),
@@ -21,15 +21,14 @@ AppPaths AppPaths::development(const QString& repository) {
 }
 
 AppPaths AppPaths::installed() {
-    // AppDataLocation is roaming on Windows. GenericDataLocation is LocalAppData
-    // and would silently split the existing Electron profile.
+    // The alternative Qt edition owns a separate profile (application name NodivuQt).
     const auto profile = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     return {QDir(QCoreApplication::applicationDirPath())
                 .absoluteFilePath(QStringLiteral("bin/nodivu-app-backend.exe")),
             profile,
             QDir(profile).filePath(QStringLiteral("plugins")),
             QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation))
-                .filePath(QStringLiteral("Nodivu/Projetos")),
+                .filePath(QStringLiteral("Nodivu/Projetos-Qt")),
             QDir(QCoreApplication::applicationDirPath())
                 .filePath(QStringLiteral("resources/store/source.json")),
             QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("plugins")),

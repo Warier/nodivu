@@ -26,7 +26,7 @@ QByteArray userToken(HANDLE process) {
 }
 } // namespace
 void initializeDesktopIdentity() {
-    SetCurrentProcessExplicitAppUserModelID(L"org.nodivu.desktop");
+    SetCurrentProcessExplicitAppUserModelID(L"org.nodivu.desktop.qt");
 }
 void applyWindowTheme(quintptr handle) {
     const BOOL dark = TRUE;

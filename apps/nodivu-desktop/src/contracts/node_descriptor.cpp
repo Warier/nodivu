@@ -184,6 +184,7 @@ void NodeCatalog::setPlugins(const QJsonArray& packages) {
                               control.value(QStringLiteral("label")).toString(), kind,
                               parameter.value(QStringLiteral("min")).toDouble(),
                               parameter.value(QStringLiteral("max")).toDouble());
+            item.stepped = parameter.value(QStringLiteral("stepped")).toBool();
             item.step = parameter.value(QStringLiteral("stepped")).toBool()
                             ? 1
                             : std::max((item.maximum - item.minimum) / 1000, 0.000001);

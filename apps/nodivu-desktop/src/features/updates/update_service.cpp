@@ -94,7 +94,8 @@ UpdateOffer UpdateService::download(TransferProgress* progress) {
         offer_.error = QStringLiteral("Verifique uma atualização autenticada antes de baixar.");
         return offer_;
     }
-    const auto target = repository_.target(offer_.target, offer_.bytes, progress, offer_.bytes);
+    const auto target =
+        repository_.target(offer_.target, offer_.bytes, progress, offer_.bytes, true);
     if (!target.ok()) {
         offer_.error = target.error;
         return offer_;

@@ -14,6 +14,7 @@ class UpdatePanel final : public QWidget {
     ~UpdatePanel() override;
     void setInstallBlockedReason(const QString& reason);
   signals:
+    void updateAvailable(const QString& version);
     void installRequested(const QString& installer, const QString& sha256);
 
   private:

@@ -23,6 +23,7 @@ struct ControlDescriptor {
     double maximum = 1;
     double step = 0.01;
     bool readonly = false;
+    bool stepped = false;
     bool advanced = false;
     bool quick = false;
     QJsonArray options;

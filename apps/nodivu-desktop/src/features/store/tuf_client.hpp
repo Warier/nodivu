@@ -12,7 +12,9 @@ class TufClient {
     QString initialize();
     QString refresh(TransferProgress* progress = nullptr);
     TransferResult target(const QString& name, qint64 maximumBytes,
-                          TransferProgress* progress = nullptr, qint64 expectedLength = -1);
+                          TransferProgress* progress = nullptr, qint64 expectedLength = -1,
+                          bool allowReleaseTarget = false);
+    static bool validReleaseUrl(const QUrl& url, const QString& repository);
     bool online() const {
         return online_;
     }

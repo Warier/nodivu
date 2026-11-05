@@ -658,8 +658,8 @@ class WorkspaceTests final : public QObject {
         panel->openApplication();
         QVERIFY(capture(QStringLiteral("system-bottom.png")));
         auto* update = button("updateAction");
-        QVERIFY(update && !update->isEnabled());
-        QVERIFY(update->toolTip().contains(QStringLiteral("canal")));
+        QVERIFY(update && update->isEnabled());
+        QCOMPARE(update->text(), QStringLiteral("Verificar atualização"));
         settings->trigger();
         QVERIFY(!panel->isVisible());
         QString id;
@@ -2236,6 +2236,7 @@ class WorkspaceTests final : public QObject {
         const auto screenshot =
             QDir(QStringLiteral(NODIVU_REPOSITORY_DIR))
                 .filePath(QStringLiteral(".local/qt-migration/qt-workspace.png"));
+        QVERIFY(QDir().mkpath(QFileInfo(screenshot).absolutePath()));
         QVERIFY(window.grab().save(screenshot));
         QVERIFY2(errors.isEmpty(), "Real graph operations must succeed.");
         auto* routingDock = window.findChild<QDockWidget*>(QStringLiteral("routingDock"));

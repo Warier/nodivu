@@ -48,7 +48,9 @@ impl Broker {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW: helper, not an interactive console.
+            // CREATE_NO_WINDOW | CREATE_SUSPENDED: no user code can spawn a
+            // descendant before the lifetime Job has been attached.
+            .creation_flags(0x0800_0004)
             .spawn()?;
         let job = match super::job::Job::attach(&child) {
             Ok(job) => job,
@@ -58,6 +60,11 @@ impl Broker {
                 return Err(error.into());
             }
         };
+        if let Err(error) = super::job::resume_primary_thread(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error.into());
+        }
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
             let _ = child.wait();

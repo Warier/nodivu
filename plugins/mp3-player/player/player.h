@@ -8,7 +8,8 @@ static_assert(std::atomic<uint64_t>::is_always_lock_free, "RT transport requires
 // All ownership/allocation lives on main/decoder threads. process/reset are RT.
 class Player {
 public:
-  Player();
+  // Internal dependency for deterministic lifecycle tests; not a plugin ABI.
+  explicit Player(DecodeFunction decode = decode_file);
   ~Player();
   bool load(const char *utf8); // main; nullptr clears; never waits for decoding
   bool play(); // legacy restart
@@ -25,6 +26,7 @@ public:
 
 private:
   void decode_loop() noexcept;
+  void reclaim(Clip *retired) noexcept; // decoder only, never process/reset
   std::atomic<bool> stopping_{false};
   std::atomic<int> status_{0};
   std::atomic<Clip *> clip_{nullptr}, hazard_{nullptr};
@@ -35,7 +37,8 @@ private:
   std::condition_variable wake_;
   std::wstring pending_;
   bool request_ = false;
-  uint64_t revision_ = 0;
+  std::atomic<uint64_t> revision_{0};
+  DecodeFunction decode_;
   std::thread decoder_;
   // Audio-thread-only cursor. No shared_ptr destruction or mutex on this
   // thread.

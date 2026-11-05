@@ -1,5 +1,7 @@
 # Nodivu
 
+> **Edição alternativa Qt 0.2.2:** esta branch acompanha as correções do motor/player da main Electron 0.2.2 e acrescenta atalhos nativos, exportação de diagnóstico e canal próprio de atualização. Instala como **Nodivu Qt**, com perfil e pasta de projetos separados. Veja [atalhos](apps/nodivu-desktop/HOTKEYS.md) e [atualizações Qt](apps/nodivu-desktop/UPDATES.md). A edição Electron permanece na branch `main`.
+
 Mixer e roteador local de áudio com um editor de nós. O frontend principal usa **Qt Widgets/C++20** e o motor de áudio é Rust. A migração para Qt foi aceita; o Electron permanece no repositório para comparação. Código aberto, licença MIT, Windows x64.
 
 ## Compilar e executar

@@ -4,11 +4,17 @@
 #include <memory>
 #include <mfapi.h>
 #include <windows.h>
-Player::Player() : decoder_([this] { decode_loop(); }) {}
+Player::Player(DecodeFunction decode)
+    : decode_(decode), decoder_([this] { decode_loop(); }) {}
 Player::~Player() {
   // CLAP guarantees stop_processing before destroy. The audio hazard is now
   // clear.
-  stopping_.store(true);
+  {
+    // Publish the wait predicate under the same mutex as condition_variable::wait:
+    // atomics alone do not prevent a notification between predicate and sleep.
+    std::lock_guard<std::mutex> lock(mutex_);
+    stopping_.store(true);
+  }
   wake_.notify_one();
   if (decoder_.joinable())
     decoder_.join();
@@ -30,6 +36,8 @@ bool Player::load(const char *utf8) {
     }
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (stopping_.load() || revision_.load() == UINT64_MAX)
+        return false;
       pending_ = std::move(path);
       request_ = true;
       ++revision_;
@@ -147,19 +155,33 @@ void Player::decode_loop() noexcept {
       if (stopping_.load())
         break;
       path = std::move(pending_);
-      revision = revision_;
+      revision = revision_.load();
       request_ = false;
     }
     try {
+      const DecodeCancellation cancel{stopping_, revision_, revision};
+      // load() has already silenced playback. The old clip is never restored
+      // after a load error, so release it before allocating the replacement.
+      // Holding the command mutex prevents a stale request publishing state.
+      Clip *previous = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (cancel.cancelled())
+          continue;
+        previous = clip_.exchange(nullptr);
+      }
+      reclaim(previous);
+      if (cancel.cancelled())
+        continue;
       if (FAILED(mf))
         throw mf;
       std::unique_ptr<Clip> next;
       if (!path.empty())
-        next = std::make_unique<Clip>(decode_file(path, stopping_));
+        next = std::make_unique<Clip>(decode_(path, cancel));
       Clip *retired = nullptr;
       {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (revision != revision_)
+        if (cancel.cancelled())
           continue;
         const auto duration = next ? static_cast<uint32_t>((next->pcm.size()/2) * 1000ULL / next->rate) : 0;
         retired = clip_.exchange(next.release());
@@ -167,18 +189,14 @@ void Player::decode_loop() noexcept {
         position_ms_.store(0);
         status_.store(path.empty() ? 0 : 2);
       }
-      // Reclamation is decoder-only. SeqCst hazard protects the current audio
-      // borrow.
-      while (retired && hazard_.load() == retired)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      delete retired;
+      reclaim(retired);
     } catch (HRESULT hr) {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (revision == revision_)
+      if (!stopping_.load() && revision == revision_.load())
         status_.store(hr);
     } catch (...) {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (revision == revision_)
+      if (!stopping_.load() && revision == revision_.load())
         status_.store(E_FAIL);
     }
   }
@@ -186,4 +204,12 @@ void Player::decode_loop() noexcept {
     MFShutdown();
   if (SUCCEEDED(com))
     CoUninitialize();
+}
+
+void Player::reclaim(Clip *retired) noexcept {
+  // SeqCst hazard protects the current audio borrow. Only the decoder waits and
+  // deletes; the audio thread performs a single acquisition attempt, no locks.
+  while (retired && hazard_.load() == retired)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  delete retired;
 }

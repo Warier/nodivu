@@ -136,6 +136,9 @@ PlaybackState playbackState(const QJsonObject& snapshot, const QJsonObject& node
         } else if (snapshot.value(QStringLiteral("muted")).toBool())
             result.reason = QStringLiteral("Tudo silenciado. Restaure o som para reproduzir.");
     }
+    const auto fault = runtime.value(QStringLiteral("fault")).toObject();
+    if (!fault.isEmpty())
+        result.reason = fault.value(QStringLiteral("message")).toString();
     const bool connected = reaches(graph, id, false);
     if (result.reason.isEmpty() &&
         node.value(QStringLiteral("block")).toObject().value(QStringLiteral("bypass")).toBool())

@@ -1,6 +1,7 @@
 //! Pool CLAP limitado com estado por UUID; catálogo visual declarativo e PCM apenas no worker nativo.
 #[path = "capture.rs"]
 mod capture;
+use crate::instance_mailbox::{InstanceMailbox, InstanceState, resolve_instance};
 use nodivu_clap_host::{EffectControls, Error, LiveEffect, OfflinePlugin};
 use nodivu_core::{
     DeviceInfo,
@@ -272,6 +273,9 @@ impl PluginBackend {
                 .collect(),
             capture: capture::CaptureControls::prepare(owners)?,
             slots: (0..count).map(|_| InstanceMailbox::default()).collect(),
+            faults: (0..count)
+                .map(|_| crate::plugin_fault::FaultMailbox::default())
+                .collect(),
             status: (0..count)
                 .map(|_| std::sync::atomic::AtomicI32::new(0))
                 .collect(),
@@ -458,6 +462,16 @@ impl DeviceBackend for PluginBackend {
             }) {
                 self.controls.capture.clear(index)?;
                 self.capture_selections[index] = None;
+                self.files[index].clear();
+                // Owner/decoder reclaim PCM outside DSP. Clear is hazard-protected by
+                // the player even if the old audio plan has not observed removal yet.
+                let mut commands = self
+                    .controls
+                    .commands
+                    .lock()
+                    .map_err(|_| invalid("Controle indisponível"))?;
+                commands.retain(|command| command.0 != index);
+                commands.push((index, "clear".into(), None, None));
                 for lease in &self.controls.leases[index] {
                     lease.store(0, SeqCst);
                 }
@@ -485,10 +499,11 @@ impl DeviceBackend for PluginBackend {
                     .or_else(|| {
                         self.slots[start..start + MAX_PLUGIN_NODES]
                             .iter()
-                            .position(Option::is_none)
+                            .enumerate()
+                            .position(|(offset, slot)| slot.is_none() && !self.controls.faults[start + offset].is_quarantined())
                             .map(|i| start + i)
                     })
-                    .ok_or_else(|| invalid("Pool de plugins cheio"))?;
+                    .ok_or_else(|| invalid("Sem instância disponível. Salve o projeto e reconecte o motor para liberar instâncias em falha."))?;
                 if self.slots[index] != Some(node.id) {
                     for lease in &self.controls.leases[index] {
                         lease.store(0, SeqCst);
@@ -537,14 +552,13 @@ impl DeviceBackend for PluginBackend {
         let mut result = serde_json::Map::new();
         for (i, id) in self.slots.iter().enumerate() {
             if let Some(id) = id {
-                result.insert(
-                    id.0.to_string(),
-                    if i >= self.controls.native_count {
-                        self.controls.worker_states[i - self.controls.native_count].snapshot()
-                    } else {
-                        json!({"capture":self.controls.capture.state(i),"capture_selection":self.capture_selections[i],"status":self.controls.status[i].load(SeqCst),"file":self.files[i],"position_ms":self.controls.position_ms[i].load(SeqCst),"duration_ms":self.controls.duration_ms[i].load(SeqCst)})
-                    },
-                );
+                let mut state = if i >= self.controls.native_count {
+                    self.controls.worker_states[i - self.controls.native_count].snapshot()
+                } else {
+                    json!({"capture":self.controls.capture.state(i),"capture_selection":self.capture_selections[i],"status":self.controls.status[i].load(SeqCst),"file":self.files[i],"position_ms":self.controls.position_ms[i].load(SeqCst),"duration_ms":self.controls.duration_ms[i].load(SeqCst)})
+                };
+                state["fault"] = self.controls.faults[i].snapshot(*id);
+                result.insert(id.0.to_string(), state);
             }
         }
         Value::Object(result)
@@ -661,55 +675,6 @@ fn invalid(message: &'static str) -> BackendError {
 
 use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
 
-#[derive(Clone, Copy, Default)]
-struct InstanceState {
-    id: Option<NodeId>,
-    values: [f64; 32],
-    bypass: bool,
-}
-#[derive(Default)]
-struct InstanceMailbox {
-    sequence: AtomicU64,
-    high: AtomicU64,
-    low: AtomicU64,
-    flags: AtomicU64,
-    values: [AtomicU64; 32],
-}
-impl InstanceMailbox {
-    fn publish(&self, state: InstanceState) {
-        self.sequence.fetch_add(1, SeqCst);
-        let id = state.id.map_or(0, |id| id.0.as_u128());
-        self.high.store((id >> 64) as u64, SeqCst);
-        self.low.store(id as u64, SeqCst);
-        self.flags.store(
-            u64::from(state.id.is_some()) | (u64::from(state.bypass) << 1),
-            SeqCst,
-        );
-        for (target, value) in self.values.iter().zip(state.values) {
-            target.store(value.to_bits(), SeqCst);
-        }
-        self.sequence.fetch_add(1, SeqCst);
-    }
-    fn read_for(&self, requested: NodeId) -> Option<InstanceState> {
-        let before = self.sequence.load(SeqCst);
-        if before & 1 != 0 {
-            return None;
-        }
-        let id = NodeId(uuid::Uuid::from_u128(
-            (u128::from(self.high.load(SeqCst)) << 64) | u128::from(self.low.load(SeqCst)),
-        ));
-        let flags = self.flags.load(SeqCst);
-        if flags & 1 == 0 || id != requested {
-            return None;
-        }
-        let state = InstanceState {
-            id: Some(id),
-            bypass: flags & 2 != 0,
-            values: std::array::from_fn(|i| f64::from_bits(self.values[i].load(SeqCst))),
-        };
-        (self.sequence.load(SeqCst) == before).then_some(state)
-    }
-}
 type FileCommand = (usize, String, Option<String>, Option<u32>);
 pub struct PluginControls {
     epoch: std::time::Instant,
@@ -720,6 +685,7 @@ pub struct PluginControls {
     workers: Vec<crate::python_worker::Package>,
     worker_states: Vec<Arc<crate::python_worker::State>>,
     slots: Vec<InstanceMailbox>,
+    faults: Vec<crate::plugin_fault::FaultMailbox>,
     status: Vec<std::sync::atomic::AtomicI32>,
     position_ms: Vec<std::sync::atomic::AtomicU32>,
     duration_ms: Vec<std::sync::atomic::AtomicU32>,
@@ -798,6 +764,10 @@ pub fn worker(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| Error::Contract("Não foi possível preparar serviço de worker"))?;
     let mut cached = vec![InstanceState::default(); mailbox.slots.len()];
+    // Keep the original error owned until the worker exits. In particular an
+    // error with heap-backed context is never deallocated on the audio callback.
+    let mut failures: Vec<Option<Error>> = (0..mailbox.slots.len()).map(|_| None).collect();
+    let mut failed_ids = vec![None; mailbox.slots.len()];
     while !effects.first().is_some_and(|effect| effect.cancelled()) {
         let run = match receive.recv_timeout(Duration::from_millis(10)) {
             Ok(run) => run,
@@ -812,40 +782,36 @@ pub fn worker(
                 .map_err(|_| Error::Contract("Reset da sessão worker falhou"))?;
         }
         for (index, effect) in effects.iter_mut().enumerate() {
+            if failed_ids[index].is_some() {
+                continue;
+            }
             if mailbox.capture.supports(index) || effect.latency_frames() > 0 {
                 effect.reset()?;
             }
         }
-        let mut failure = None;
         let _audio_result = run.run(&mut |audio, id, sidechain| {
             if effects.first().is_some_and(|effect| effect.cancelled()) {
                 stop();
                 return false;
             }
-            if failure.is_some() {
-                return false;
-            }
             let Some(id) = id else {
                 return true;
             };
-            let found = mailbox
-                .slots
-                .iter()
-                .enumerate()
-                .find_map(|(i, slot)| slot.read_for(id).map(|state| (i, state)));
-            // A concurrent edit never blocks audio. Use prior coherent settings only for the same UUID.
-            let found = found.or_else(|| {
-                cached
-                    .iter()
-                    .enumerate()
-                    .find(|(_, s)| s.id == Some(id))
-                    .map(|(i, s)| (i, *s))
-            });
+            let found = resolve_instance(&mailbox.slots, &cached, id);
             let Some((index, state)) = found else {
                 audio.left.fill(0.0);
                 audio.right.fill(0.0);
                 return true;
             };
+            // Never bypass a fault: a privacy/voice effect must not expose dry
+            // audio. The control thread assigns new nodes to healthy instances.
+            if failed_ids[index].is_some() {
+                if failed_ids[index] != Some(id) {
+                    mailbox.faults[index]
+                        .record(id, &Error::Contract("Slot aguardando reconexão após falha"));
+                }
+                return false;
+            }
             let result = (|| {
                 if index >= effects.len() {
                     let worker = &mut workers[index - effects.len()];
@@ -880,49 +846,16 @@ pub fn worker(
                     .map(|_| ())
             })();
             if let Err(error) = result {
-                failure = Some(error);
-                stop();
+                mailbox.faults[index].record(id, &error);
+                failed_ids[index] = Some(id);
+                failures[index] = Some(error);
                 false
             } else {
                 true
             }
         });
-        if let Some(error) = failure {
-            return Err(error);
-        }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn concurrent_settings_never_mix_uuid_bypass_or_parameter_batch() {
-        let mailbox = Arc::new(InstanceMailbox::default());
-        let writer = mailbox.clone();
-        let id = NodeId(uuid::Uuid::from_u128(7));
-        let thread = std::thread::spawn(move || {
-            for i in 1..10_000 {
-                writer.publish(InstanceState {
-                    id: Some(id),
-                    values: [f64::from(i); 32],
-                    bypass: i % 2 == 0,
-                });
-            }
-        });
-        while !thread.is_finished() {
-            if let Some(state) = mailbox.read_for(id) {
-                assert!(state.values.iter().all(|v| *v == state.values[0]));
-                assert_eq!(state.bypass, (state.values[0] as u64).is_multiple_of(2));
-                assert_eq!(state.id, Some(id));
-            }
-        }
-        thread.join().unwrap();
-        assert!(mailbox.read_for(NodeId(uuid::Uuid::from_u128(8))).is_none());
-        mailbox.sequence.store(1, SeqCst);
-        assert!(mailbox.read_for(id).is_none());
-    }
 }
 
 #[cfg(test)]

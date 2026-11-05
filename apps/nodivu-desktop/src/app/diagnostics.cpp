@@ -1,7 +1,9 @@
 #include "backend/backend_client.hpp"
+#include "features/hotkeys/hotkey_service.hpp"
 #include "features/store/store_service.hpp"
 #include "features/workspace/session_controller.hpp"
 #include "platform/app_paths.hpp"
+#include <QApplication>
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDataStream>
@@ -13,6 +15,7 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QWidget>
 #include <QtConcurrentRun>
 #include <functional>
 
@@ -189,8 +192,59 @@ QString audioProbe(nodivu::SessionController& session, const QString& endpoint) 
     if (!command(QStringLiteral("pause")) ||
         !until([&] { return runtime().value(QStringLiteral("status")).toInt() == 5; }))
         return QStringLiteral("Pausa não foi confirmada pelo player.");
+    bool restored = false;
+    session.command(QStringLiteral("audio.mute"), {{QStringLiteral("muted"), false}},
+                    [&](const nodivu::BackendReply& r) { restored = r.ok; });
+    if (!until([&] { return restored && session.settled(); }))
+        return QStringLiteral("Não foi possível restaurar a saída silenciosa de teste.");
+    QWidget host;
+    nodivu::HotkeyService hotkeys(session, media.path(), &host);
+    int replies = 0;
+    bool accepted = false;
+    QString hotkeyError;
+    QObject::connect(&hotkeys, &nodivu::HotkeyService::result, &host,
+                     [&](bool ok, const QString& message) {
+                         ++replies;
+                         accepted = ok;
+                         hotkeyError = message;
+                     });
+    int key = 13;
+    for (const auto& operation :
+         {QStringLiteral("player.play"), QStringLiteral("player.pause"),
+          QStringLiteral("player.restart"), QStringLiteral("player.stop")}) {
+        QString action;
+        for (const auto& a : hotkeys.actions())
+            if (a.node == player && a.operation == operation)
+                action = a.id;
+        if (action.isEmpty())
+            return QStringLiteral("Ação de player ausente no catálogo de atalhos.");
+        QJsonObject binding{{QStringLiteral("id"), QStringLiteral("player-test")},
+                            {QStringLiteral("enabled"), true},
+                            {QStringLiteral("scope"), QStringLiteral("local")},
+                            {QStringLiteral("action"), action},
+                            {QStringLiteral("label"), operation},
+                            {QStringLiteral("accelerator"), QStringLiteral("F%1").arg(key++)}};
+        const auto saved = hotkeys.save({{QStringLiteral("version"), 1},
+                                         {QStringLiteral("enabled"), true},
+                                         {QStringLiteral("bindings"), QJsonArray{binding}}});
+        if (!saved.isEmpty())
+            return saved;
+        const int before = replies;
+        hotkeys.fire(QStringLiteral("player-test"), true);
+        if (!until([&] { return replies > before; }) || !accepted)
+            return QStringLiteral("Atalho do player falhou: ") + hotkeyError;
+        const int expected = (operation == QStringLiteral("player.pause") ||
+                              operation == QStringLiteral("player.stop"))
+                                 ? 5
+                                 : 3;
+        if (!until([&] { return runtime().value(QStringLiteral("status")).toInt() == expected; }))
+            return QStringLiteral("Player não confirmou o estado após atalho.");
+        if (operation == QStringLiteral("player.stop") &&
+            !until([&] { return runtime().value(QStringLiteral("position_ms")).toInt() == 0; }))
+            return QStringLiteral("Stop por atalho não voltou ao início.");
+    }
     QTextStream(stdout) << QStringLiteral(
-        "WASAPI, ganho, bypass, mute, WAV, seek, play e pause: PASS\n");
+        "WASAPI, ganho, bypass, mute, WAV, seek e atalhos play/pause/restart/stop: PASS\n");
     return {};
 }
 QString installedPluginProbe(nodivu::SessionController& session, const nodivu::AppPaths& paths) {
@@ -238,7 +292,7 @@ QString installedPluginProbe(nodivu::SessionController& session, const nodivu::A
 }
 } // namespace
 int main(int argc, char* argv[]) {
-    QCoreApplication app(argc, argv);
+    QApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("NodivuDiagnostics"));
     QCommandLineParser parser;
     parser.addHelpOption();

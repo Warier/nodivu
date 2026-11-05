@@ -11,10 +11,20 @@ foreach ($nodivuArchive in $nodivuArchives) {
     if (!(Test-Path -LiteralPath $nodivuFile)) {
         if ($VerifyDownloads) { throw "Download ausente: $nodivuFile" }
         $nodivuTemporary = "$nodivuFile.partial"
-        Invoke-WebRequest -Uri $nodivuArchive.url -OutFile $nodivuTemporary -MaximumRedirection 8
-        if ((Get-FileHash -LiteralPath $nodivuTemporary -Algorithm SHA256).Hash -ne $nodivuArchive.sha256) {
-            throw "SHA256 incorreto: $($nodivuArchive.component). Nenhum SDK foi instalado."
+        $nodivuVerified = $false
+        $nodivuSources = @($nodivuArchive.url) + @($nodivuArchive.mirrors)
+        foreach ($nodivuUrl in $nodivuSources) {
+            if (!$nodivuUrl) { continue }
+            try {
+                Invoke-WebRequest -Uri $nodivuUrl -OutFile $nodivuTemporary -MaximumRedirection 8
+                if ((Get-FileHash -LiteralPath $nodivuTemporary -Algorithm SHA256).Hash -eq $nodivuArchive.sha256) {
+                    $nodivuVerified = $true
+                    break
+                }
+                Write-Warning "Espelho devolveu conteúdo diferente do SHA256 fixado: $($nodivuArchive.component)."
+            } catch { Write-Warning "Espelho indisponível: $($nodivuArchive.component)." }
         }
+        if (!$nodivuVerified) { throw "Nenhum espelho forneceu o SHA256 fixado: $($nodivuArchive.component). Nenhum SDK foi instalado." }
         Move-Item -LiteralPath $nodivuTemporary -Destination $nodivuFile
     }
     if ((Get-FileHash -LiteralPath $nodivuFile -Algorithm SHA256).Hash -ne $nodivuArchive.sha256) {

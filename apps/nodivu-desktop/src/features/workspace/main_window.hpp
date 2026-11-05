@@ -15,6 +15,7 @@ class QDockWidget;
 class QTimer;
 
 namespace nodivu {
+class HotkeyService;
 class LibraryPanel;
 class GraphScene;
 class GraphView;
@@ -61,6 +62,7 @@ class MainWindow final : public QMainWindow {
     void showSettings();
     void handleAudioAction();
     void nodeAction(const QString& id, const QString& action, const QPoint& position);
+    HotkeyService* hotkeys_ = nullptr;
     BackendClient backend_;
     SessionController session_{backend_, this};
     AppPaths paths_;

@@ -109,6 +109,17 @@ AudioState audioState(const QJsonObject& snapshot, const QJsonArray& devices, bo
                 true,
                 true};
     }
+    const auto states = snapshot.value(QStringLiteral("plugin_states")).toObject();
+    for (auto it = states.begin(); it != states.end(); ++it) {
+        const auto fault = it.value().toObject().value(QStringLiteral("fault")).toObject();
+        if (!fault.isEmpty())
+            return {QStringLiteral("Plugin silenciado por falha · ") + it.key().left(8),
+                    fault.value(QStringLiteral("message")).toString(),
+                    {},
+                    AudioAction::None,
+                    true,
+                    true};
+    }
     if (snapshot.value(QStringLiteral("signal")).toInt() == 0)
         return {snapshot.value(QStringLiteral("graph"))
                         .toObject()

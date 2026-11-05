@@ -3,6 +3,7 @@
 #include "contracts/virtual_cable.hpp"
 #include "features/projects/project_controller.hpp"
 #include "features/updates/update_panel.hpp"
+#include "platform/diagnostic_export.hpp"
 #include "ui/controls/action_availability.hpp"
 #include "ui/controls/device_selector.hpp"
 #include "ui/theme/studio_icons.hpp"
@@ -11,6 +12,7 @@
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -19,6 +21,7 @@
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QShowEvent>
@@ -303,6 +306,27 @@ SystemPanel::SystemPanel(SessionController& session, ProjectController& projects
         const auto directory = QDir(paths_.profile).filePath(QStringLiteral("logs"));
         if (!QDir().mkpath(directory) || !QDesktopServices::openUrl(QUrl::fromLocalFile(directory)))
             emit error(QStringLiteral("Não foi possível abrir a pasta de diagnóstico."));
+    });
+    auto* exportLog = new QPushButton(QStringLiteral("Exportar diagnóstico reduzido…"), content);
+    exportLog->setObjectName(QStringLiteral("exportDiagnostics"));
+    layout->addWidget(exportLog);
+    connect(exportLog, &QPushButton::clicked, this, [this] {
+        const auto report = diagnosticReport(paths_.profile);
+        if (!report.error.isEmpty()) {
+            emit error(report.error);
+            return;
+        }
+        const auto file = QFileDialog::getSaveFileName(
+            this, QStringLiteral("Exportar diagnóstico — revise antes de compartilhar"),
+            QDir(paths_.projects).filePath(QStringLiteral("nodivu-qt-diagnostico.json")),
+            QStringLiteral("JSON (*.json)"));
+        if (file.isEmpty())
+            return;
+        QSaveFile output(file);
+        output.setDirectWriteFallback(false);
+        if (!output.open(QIODevice::WriteOnly) ||
+            output.write(report.bytes) != report.bytes.size() || !output.commit())
+            emit error(QStringLiteral("Não foi possível exportar o diagnóstico."));
     });
     layout->addWidget(text(QStringLiteral("DIAGNÓSTICO"), content, QStringLiteral("eyebrow")));
     metrics_ = text({}, content);

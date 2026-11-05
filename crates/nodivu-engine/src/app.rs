@@ -42,6 +42,11 @@ pub struct AppBackend<B> {
     generation: u64,
     shutdown: bool,
     suspended: bool,
+    // Structural metadata changes with graph/mute, not with meters or transport.
+    // Plugin catalogs/latencies are fixed for this backend's lifetime (reload
+    // constructs a new backend). Keep polling free of graph compilation.
+    snapshot_missing: Vec<Value>,
+    snapshot_signal: u32,
 }
 impl<B: DeviceBackend> AppBackend<B> {
     pub fn new(backend: B) -> Self {
@@ -57,6 +62,8 @@ impl<B: DeviceBackend> AppBackend<B> {
             generation: 0,
             shutdown: false,
             suspended: false,
+            snapshot_missing: Vec::new(),
+            snapshot_signal: 0,
         }
     }
     pub fn shutting_down(&self) -> bool {
@@ -97,9 +104,8 @@ impl<B: DeviceBackend> AppBackend<B> {
         });
         active
     }
-    pub fn snapshot(&self) -> Value {
-        let active = self.execution_graph(&self.graph);
-        let missing: Vec<_> = self
+    fn update_snapshot_structure(&mut self, active: &Graph, signal: u32) {
+        self.snapshot_missing = self
             .graph
             .nodes
             .iter()
@@ -111,22 +117,25 @@ impl<B: DeviceBackend> AppBackend<B> {
                 json!({"node_id":n.id,"plugin_id":plugin_id})
             })
             .collect();
-        json!({"missing_plugins":missing,"monitor":{"endpoint_id":self.monitor_endpoint,"runtime":self.audio.as_ref().map_or(json!({"state":"off"}),|a|a.monitor_snapshot())},"suspended":self.suspended,"plugin_states":self.backend.plugin_runtime(),"revision":self.revision,"graph":self.graph,"muted":self.muted,"engine_state":self.audio.as_ref().map_or("idle",|a|a.state()),"generation":self.generation,
-            "signal":if self.muted { 0 } else { active.live_plan(self.muted, |id| self.backend.plugin_latency(id)).map_or(0, |p| p.signal.source) },"metrics":self.audio.as_ref().map(|a|a.metrics()),
+        self.snapshot_signal = if self.muted { 0 } else { signal };
+    }
+    pub fn snapshot(&self) -> Value {
+        json!({"missing_plugins":self.snapshot_missing,"monitor":{"endpoint_id":self.monitor_endpoint,"runtime":self.audio.as_ref().map_or(json!({"state":"off"}),|a|a.monitor_snapshot())},"suspended":self.suspended,"plugin_states":self.backend.plugin_runtime(),"revision":self.revision,"graph":self.graph,"muted":self.muted,"engine_state":self.audio.as_ref().map_or("idle",|a|a.state()),"generation":self.generation,
+            "signal":self.snapshot_signal,"metrics":self.audio.as_ref().map(|a|a.metrics()),
             "last_error":self.audio.as_ref().and_then(|a|a.error()).or_else(||self.last_error.clone()),
             "capture_error":self.audio.as_ref().and_then(|a|a.capture_error())})
     }
     fn reconcile(&mut self, retry: bool) {
+        let active = self.execution_graph(&self.graph);
+        let compiled = active.live_plan(self.muted, |id| self.backend.plugin_latency(id));
+        self.update_snapshot_structure(&active, compiled.as_ref().map_or(0, |p| p.signal.source));
         if self.suspended {
             return;
         }
         let capture = self.graph.endpoint(true);
         let output = self.graph.endpoint(false);
         let desired = output.map(|output| (capture, output));
-        let plan = match self
-            .execution_graph(&self.graph)
-            .live_plan(self.muted, |id| self.backend.plugin_latency(id))
-        {
+        let plan = match compiled {
             Ok(plan) => plan,
             Err(e) => {
                 self.last_error = Some(e);
@@ -319,7 +328,7 @@ impl<B: DeviceBackend> AppBackend<B> {
                 self.revision(p.expected_revision)?;
                 let project = nodivu_core::project::Project::parse(&p.contents)?;
                 let active = self.execution_graph(&project.graph);
-                active.live_plan(false, |id| self.backend.plugin_latency(id))?;
+                let plan = active.live_plan(false, |id| self.backend.plugin_latency(id))?;
                 self.backend
                     .validate_plugins(&active)
                     .map_err(|e| ApiError::invalid(e.to_string()))?;
@@ -385,6 +394,7 @@ impl<B: DeviceBackend> AppBackend<B> {
                 self.revision = revision;
                 self.last_error = None;
                 self.muted = false;
+                self.update_snapshot_structure(&active, plan.signal.source);
                 Ok(json!({"snapshot":self.snapshot(),"project":project}))
             }
             "graph.apply" => {

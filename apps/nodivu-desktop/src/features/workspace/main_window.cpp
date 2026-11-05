@@ -4,12 +4,14 @@
 #include "features/graph/graph_scene.hpp"
 #include "features/graph/graph_view.hpp"
 #include "features/graph/routing_panel.hpp"
+#include "features/hotkeys/hotkey_service.hpp"
 #include "features/inspector/inspector_panel.hpp"
 #include "features/library/library_panel.hpp"
 #include "features/plugins/package_service.hpp"
 #include "features/projects/project_controller.hpp"
 #include "features/store/store_controller.hpp"
 #include "features/store/store_window.hpp"
+#include "features/updates/update_panel.hpp"
 #include "features/updates/update_window.hpp"
 #include "features/workspace/audio_status_panel.hpp"
 #include "features/workspace/system_panel.hpp"
@@ -183,6 +185,16 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
     auto* organize = action(viewMenu, QStringLiteral("&Organizar blocos"), "organizeGraph");
     organize_ = organize;
 
+    hotkeys_ = new HotkeyService(session_, paths_.profile, this);
+    hotkeys_->setBlocked([this] {
+        return closing_ || (projects_ && (projects_->busy() || projects_->recoveryPending()));
+    });
+    auto* hotkeyAction = action(viewMenu, QStringLiteral("Atalhos e macros…"), "configureHotkeys");
+    connect(hotkeyAction, &QAction::triggered, this, [this] { showHotkeys(*hotkeys_, this); });
+    connect(hotkeys_, &HotkeyService::result, this, [this](bool ok, const QString& message) {
+        if (!ok)
+            emit session_.error(message);
+    });
     auto* audioMenu = menu(QStringLiteral("Á&udio"), "audioMenu");
     listen_ = action(audioMenu, QStringLiteral("&Escuta local…"), "listenShortcut");
     virtualOutput_ = action(audioMenu, QStringLiteral("Configurar &microfone virtual"),
@@ -666,6 +678,14 @@ MainWindow::MainWindow(const AppPaths& paths, QWidget* parent)
         }
     });
     connect(settings_, &QAction::triggered, this, &MainWindow::showSettings);
+    if (auto* updates = system_->findChild<UpdatePanel*>())
+        connect(updates, &UpdatePanel::updateAvailable, this, [this](const QString& version) {
+            if (!closing_) {
+                system_->openApplication();
+                status_->setText(
+                    QStringLiteral("Nodivu Qt %1 disponível — baixe em Sistema.").arg(version));
+            }
+        });
     connect(listen_, &QAction::triggered, system_, &SystemPanel::openMonitor);
     connect(mute, &QPushButton::toggled, this, [this](bool enabled) {
         if (!mute_->isEnabled())
@@ -1218,6 +1238,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         return;
     }
     closing_ = true;
+    hotkeys_->suspend(true);
     session_.beginShutdown();
     if (shutdownComplete_) {
         event->accept();

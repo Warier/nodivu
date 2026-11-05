@@ -24,7 +24,7 @@ int main(int argc, char* argv[]) {
     QElapsedTimer startup;
     startup.start();
     QApplication application(argc, argv);
-    QCoreApplication::setApplicationName(QStringLiteral("Nodivu"));
+    QCoreApplication::setApplicationName(QStringLiteral("NodivuQt"));
     QCoreApplication::setApplicationVersion(QStringLiteral(NODIVU_APP_VERSION));
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Nodivu — Estúdio de áudio Qt/C++"));

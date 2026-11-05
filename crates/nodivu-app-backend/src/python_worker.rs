@@ -220,6 +220,13 @@ impl Instance {
         samples[0][..frames].copy_from_slice(audio.left);
         samples[1][..frames].copy_from_slice(audio.right);
         self.audio.process_with_gain(&mut samples, frames, gain)?;
+        // Keep the bounded transport alive so an explicit restart can publish a
+        // fresh epoch. Failed voice/privacy workers never expose the dry input.
+        if self.state.status.load(Acquire) == 3 {
+            audio.left.fill(0.0);
+            audio.right.fill(0.0);
+            return Ok(());
+        }
         for ((left, right), (wet_left, wet_right)) in audio
             .left
             .iter_mut()
