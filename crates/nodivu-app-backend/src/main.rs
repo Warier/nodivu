@@ -16,6 +16,8 @@ mod plugin_fault;
 mod plugin_loader;
 #[cfg(windows)]
 mod python_worker;
+#[cfg(windows)]
+mod soundboard;
 
 fn main() -> ExitCode {
     match run() {

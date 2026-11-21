@@ -34,7 +34,7 @@ Envelope opcional para legado, obrigatório para atualizar o mesmo ID:
 }
 ```
 
-Obrigatórios: schema 1, ID igual ao manifesto, versão numérica `x.y.z` e autor de até 128 caracteres. Sem pré-release neste primeiro formato; cada parte da versão tem até seis dígitos, sem zero inicial. Se informados, `host_api` deve ser 1 ou 2 e `platform` precisa corresponder ao sistema/arquitetura atual. Repositório exige HTTPS sem credenciais. `resource_tier` aceita `light`, `moderate`, `heavy` ou `unknown`; é declaração do autor, não benchmark ou aprovação. Ausência vira não medido. Licença é informativa: inclua o texto e avisos das dependências no pacote. Não há selo oficial obtido por campos locais.
+Obrigatórios: schema 1, ID igual ao manifesto, versão numérica `x.y.z` e autor de até 128 caracteres. Sem pré-release neste primeiro formato; cada parte da versão tem até seis dígitos, sem zero inicial. O host 0.2.3-dev.1 aceita `host_api` 1, 2 ou 3. Plugins com banco de arquivos declaram a API 3 ([FILE-BANK](FILE-BANK.md)). Se informada, `platform` precisa corresponder ao sistema/arquitetura atual. Repositório exige HTTPS sem credenciais. `resource_tier` aceita `light`, `moderate`, `heavy` ou `unknown`; é declaração do autor, não benchmark ou aprovação. Ausência vira não medido. Licença é informativa: inclua o texto e avisos das dependências no pacote. Não há selo oficial obtido por campos locais.
 
 ## Importação e atualização
 
@@ -50,7 +50,7 @@ O perfil contém `plugins`, `plugin-staging`, `plugin-updates` e `plugin-archive
 
 Inclua README.md de até 256 KiB com as instruções da versão distribuída. Títulos, tabelas, listas e blocos de código são suportados; HTML passa por sanitização e não pode acessar Node ou executar ações. Links absolutos HTTPS abrem no navegador. Outros documentos relativos ainda não são navegáveis.
 
-Até 12 imagens locais PNG/JPEG/WebP/GIF de 2 MiB cada. Use caminhos relativos dentro do pacote. Imagens externas não são baixadas. Prefira copiar para o pacote as imagens necessárias e manter os créditos/licenças. SVG ativo, scripts, eventos, estilos e iframes não fazem parte do contrato.
+Até 12 imagens locais PNG/JPEG/WebP/GIF de 2 MiB cada. O cabeçalho deve corresponder à extensão. Cada dimensão pode ter até 4096 pixels e a área total até 8.388.608 pixels. Use caminhos relativos dentro do próprio pacote. Imagens externas não são baixadas. Prefira copiar para o pacote as imagens necessárias e manter os créditos/licenças. SVG ativo, scripts, eventos, estilos e iframes não fazem parte do contrato.
 
 ## Compilar os exemplos
 

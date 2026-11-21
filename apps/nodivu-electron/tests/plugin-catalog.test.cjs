@@ -66,10 +66,35 @@ test('TUF rejects bad signatures, expired metadata and rollback',async t=>{
  repo.publish();const metadata=JSON.parse(repo.files.get('/metadata/timestamp.json'));metadata.signed.version+=1;repo.files.set('/metadata/timestamp.json',Buffer.from(JSON.stringify(metadata)));assert.equal((await catalog.refresh()).online,false);
  repo.publish('2000-01-01T00:00:00Z');assert.equal((await catalog.refresh()).online,false);
 });
+test('failed README cache replacement preserves the previous offline version',async t=>{
+ const {catalog,repo,root,source}=await fixture(t);
+ const item=repo.package('org.nodivu.readme');repo.publish();
+ assert.equal((await catalog.refresh()).online,true);
+ const before=await catalog.details(item.id);
+ repo.files.set('/targets/'+item.readme,Buffer.from('# Revisão de exemplo'));repo.publish();
+ assert.equal((await catalog.refresh()).online,true);
+ const rename=fs.rename;
+ t.mock.method(fs,'rename',async(from,to)=>{
+  if(to.endsWith('.md'))throw Error('Cache ocupado');
+  return rename(from,to);
+ });
+ await assert.rejects(catalog.details(item.id),/Cache ocupado/);
+ const offline=new PluginCatalog(root,source,{allowLoopback:true});await offline.init();
+ assert.equal((await offline.details(item.id)).markdown,before.markdown);
+ assert.equal((await fs.readdir(catalog.directory)).filter(name=>name.endsWith('.tmp')).length,0);
+});
+test('signed catalog image must match its declared extension',async t=>{
+ const {catalog,repo}=await fixture(t);
+ const item=repo.package('org.nodivu.image');
+ repo.files.set('/targets/'+item.logo,Buffer.from('not an image'));repo.publish();
+ assert.equal((await catalog.refresh()).online,true);
+ await assert.rejects(catalog.image(item.id,null),/Imagem inválida/);
+});
 test('catalog schema bounds paths and identities; HTTP requires explicit test injection',async t=>{
  const {repo,root,source}=await fixture(t);const item=repo.package('com.example.test');
  assert.throws(()=>new PluginCatalog(root,source),/HTTPS/);
  for(const changed of [{archive:'../x.zip'},{id:'x/y'},{download_bytes:300*1024*1024},{images:{'../x':'x.png'}},{logo:'x.svg'}])assert.throws(()=>validateCatalog({schema_version:1,plugins:[{...item,...changed}]}));
+ for(const changed of [{archive:'pkg/CON.zip'},{readme:'nul/README.md'},{images:{'COM1.png':'ok.png'}},{logo:'pkg/lPt2.logo.png'}])assert.throws(()=>validateCatalog({schema_version:1,plugins:[{...item,...changed}]}));
  assert.throws(()=>validateCatalog({schema_version:1,plugins:[item,item]}),/duplicado/);
  assert.equal(validateCatalog({schema_version:1,plugins:[{...item,official:true}]} )[0].official,false);
 });

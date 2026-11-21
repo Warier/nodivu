@@ -21,7 +21,8 @@ async function clearPluginCache(catalog,manager){
  let removed=0;
  if(catalog.source){
   removed+=await clearDirectory(catalog.targets,()=>true);
-  removed+=await clearDirectory(catalog.directory,n=>/^unpack-[a-f0-9-]{36}$/.test(n)||/^readme-[a-f0-9]{64}\.md$/.test(n));
+  removed+=await clearDirectory(catalog.directory,n=>/^unpack-[a-f0-9-]{36}$/.test(n)||/^readme-[a-f0-9]{64}\.md$/.test(n)||
+   /^(?:display\.json|readme-[a-f0-9]{64}\.md)\.[a-f0-9-]{36}\.tmp$/.test(n));
  }
  const journals=await manager.versions.journals();
  if(manager.versions.errors.length)throw new Error('Downloads limpos; staging preservado porque há registros de atualização inválidos.');

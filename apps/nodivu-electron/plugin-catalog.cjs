@@ -3,13 +3,23 @@ const path=require('node:path');
 const {createHash,randomUUID}=require('node:crypto');
 const {Updater,BaseFetcher}=require('tuf-js');
 const {DownloadHTTPError}=require('tuf-js/dist/error');
-const {extractArchive}=require('./plugin-archive.cjs');
+const {extractArchive,reservedWindowsName}=require('./plugin-archive.cjs');
 const {inspectFolder}=require('./plugin-manager.cjs');
+const {readBounded,readImage}=require('./plugin-assets.cjs');
 const MAX_PACKAGE=256*1024*1024,MAX_CATALOG=1024*1024;
 const exists=file=>fs.access(file).then(()=>true,e=>{if(e.code==='ENOENT')return false;throw e;});
 const text=(v,max)=>typeof v==='string'&&v.trim().length>0&&v.length<=max;
-const targetPath=v=>text(v,240)&&v.split('/').every(p=>/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(p)&&!p.endsWith('.'));
+const targetPath=v=>text(v,240)&&v.split('/').every(p=>/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(p)&&!p.endsWith('.')&&!reservedWindowsName(p));
 const version=v=>typeof v==='string'&&/^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/.test(v);
+
+async function writeDisplayCache(file,data){
+ const temporary=file+'.'+randomUUID()+'.tmp';
+ const handle=await fs.open(temporary,'wx');
+ try{
+  try{await handle.writeFile(data);}finally{await handle.close();}
+  await fs.rename(temporary,file);
+ }finally{await fs.rm(temporary,{force:true});}
+}
 
 function validateCatalog(data,officialPublishers=[]){
  if(!data||data.schema_version!==1||!Array.isArray(data.plugins)||data.plugins.length>500)throw new Error('Catálogo inválido ou maior que 500 plugins.');
@@ -26,7 +36,7 @@ function validateCatalog(data,officialPublishers=[]){
   return {id:p.id,version:p.version,title:p.title,author:p.author,publisherId:p.publisher_id,description:p.description,
    archive:p.archive,readme:p.readme,images,logo:p.logo||null,downloadBytes:p.download_bytes,resourceTier:p.resource_tier,
    platform:p.platform,hostApi:p.host_api,repository:p.repository||'',official:officialPublishers.includes(p.publisher_id),
-   compatible:p.platform===`${process.platform}-${process.arch}`&&[1,2].includes(p.host_api)};
+   compatible:p.platform===`${process.platform}-${process.arch}`&&[1,2,3].includes(p.host_api)};
  });
 }
 
@@ -72,7 +82,7 @@ class PluginCatalog{
   const root=path.join(this.metadataDir,'root.json');
   // Initial trust is shipped out of band. Rotated roots thereafter are verified/persisted by TUF.
   if(!await exists(root))await fs.writeFile(root,this.source.root,{flag:'wx'});
-  try{const cached=path.join(this.directory,'display.json');if((await fs.stat(cached)).size>MAX_CATALOG)throw new Error('Cache excede limite.');const data=JSON.parse(await fs.readFile(cached,'utf8'));this.rows=validateCatalog(data,this.source.official_publishers);}
+  try{const cached=await readBounded(path.join(this.directory,'display.json'),MAX_CATALOG,'Cache');this.rows=validateCatalog(JSON.parse(cached.toString('utf8')),this.source.official_publishers);}
   catch(e){if(e.code!=='ENOENT')this.error='Cache do catálogo indisponível: '+e.message;}
  }
  snapshot(){return {configured:Boolean(this.source),entries:this.rows,online:Boolean(this.client),checkedAt:this.checkedAt,error:this.error};}
@@ -86,8 +96,8 @@ class PluginCatalog{
    const client=new Updater({metadataDir:this.metadataDir,metadataBaseUrl:this.source.metadata_url,targetDir:this.targets,targetBaseUrl:this.source.target_url,fetcher:new CatalogFetcher(this.source,()=>this.operation),config:{maxRootRotations:16,maxDelegations:8,rootMaxLength:512000,timestampMaxLength:16384,snapshotMaxLength:1048576,targetsMaxLength:2097152}});
    await client.refresh();
    const file=await this.target(client,'catalog.json',MAX_CATALOG);
-   const data=JSON.parse(await fs.readFile(file,'utf8')),rows=validateCatalog(data,this.source.official_publishers);
-   await fs.writeFile(path.join(this.directory,'display.json.tmp'),JSON.stringify(data));await fs.rename(path.join(this.directory,'display.json.tmp'),path.join(this.directory,'display.json'));
+   const data=JSON.parse((await readBounded(file,MAX_CATALOG,'Catálogo')).toString('utf8')),rows=validateCatalog(data,this.source.official_publishers);
+   await writeDisplayCache(path.join(this.directory,'display.json'),JSON.stringify(data));
    this.rows=rows;this.client=client;this.checkedAt=new Date().toISOString();this.error='';
   }catch(e){this.error='Não foi possível verificar o catálogo: '+e.message;}
   return this.snapshot();
@@ -102,8 +112,15 @@ class PluginCatalog{
  async details(id){
   const item=this.entry(id);let markdown;
   const cache=path.join(this.directory,'readme-'+createHash('sha256').update(item.id+'@'+item.version).digest('hex')+'.md');
-  if(this.client){const file=await this.target(this.client,item.readme,256*1024);markdown=await fs.readFile(file,'utf8');await fs.writeFile(cache,markdown);}
-  else {if(!await exists(cache))throw new Error('Documentação ainda não disponível offline. Atualize o catálogo com conexão.');if((await fs.stat(cache)).size>256*1024)throw new Error('README excede limite.');markdown=await fs.readFile(cache,'utf8');}
+  if(this.client){
+   const file=await this.target(this.client,item.readme,256*1024);
+   const data=await readBounded(file,256*1024,'README');
+   await writeDisplayCache(cache,data);
+   markdown=data.toString('utf8');
+  }else{
+   if(!await exists(cache))throw new Error('Documentação ainda não disponível offline. Atualize o catálogo com conexão.');
+   markdown=(await readBounded(cache,256*1024,'README')).toString('utf8');
+  }
   return {entry:{title:item.title,metadata:{author:item.author,version:item.version,license:''}},markdown};
  }
  async image(id,relative){
@@ -111,8 +128,7 @@ class PluginCatalog{
   const item=this.entry(id),name=relative===null?item.logo:Object.hasOwn(item.images,relative)?item.images[relative]:null;
   if(!name)return {};
   const file=await this.target(this.client,name,2*1024*1024);
-  const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'}[path.extname(name).toLowerCase()];
-  return {url:'data:'+mime+';base64,'+(await fs.readFile(file)).toString('base64')};
+  return readImage(file,name);
  }
  beginOperation(){if(this.operation)throw new Error('Outra instalação em andamento.');this.operation={controller:new AbortController(),phase:'verify',file:'',received:0,total:0,cancelable:true};}
  operationStatus(){const p=this.operation;return p?{active:true,phase:p.phase,file:p.file,received:p.received,total:p.total,cancelable:p.cancelable}:{active:false};}

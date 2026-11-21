@@ -1,5 +1,7 @@
 # Loja de plugins: cliente, catálogo e publicação
 
+O cliente Electron 0.2.3-dev.1 aceita as APIs 1, 2 e 3. Pacotes com banco de arquivos declaram a API 3 no envelope e no catálogo. Cada componente do caminho de um target deve ser um nome de arquivo válido para Windows. O cliente confere o formato e as dimensões das imagens antes de exibi-las. Os limites são os mesmos do [gerenciador de pacotes](PLUGIN-PACKAGE.md#readme-e-imagens).
+
 **Atualização 2026-10-13:** catálogo experimental em [nodivu-plugins](https://github.com/Warier/nodivu-plugins), com Ducking e Botão de fala separados. O host de desenvolvimento aceita API 1 e 2; a release original 0.2.0 aceita apenas API 1 e não contém este bootstrap. [Contrato API 2](PLUGIN-NATIVE.md): segunda entrada CLAP e widget momentary. Renovação/custódia documentadas no repo do catálogo.
 
 O cliente e o gerenciador local estão implementados. O catálogo público experimental é hospedado em GitHub Pages, sem servidor dedicado. As chaves de assinatura permanecem sob custódia local do mantenedor; a operação ainda depende de renovação manual.

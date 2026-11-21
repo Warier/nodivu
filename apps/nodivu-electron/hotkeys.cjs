@@ -29,7 +29,7 @@ function validate(data){
  })};
 }
 class Hotkeys extends EventEmitter {
- constructor(file,shortcuts,execute){super();this.file=file;this.shortcuts=shortcuts;this.execute=execute;this.config={version:1,enabled:true,bindings:[]};this.actions=new Map();this.registered=new Map();this.states=new Map();this.registrationStatus=new Map();this.suspended=false;this.pending=false;this.saving=false;this.last=new Map();this.lastResult=null;this.error='';this.corrupt=false;}
+ constructor(file,shortcuts,execute){super();this.file=file;this.shortcuts=shortcuts;this.execute=execute;this.config={version:1,enabled:true,bindings:[]};this.actions=new Map();this.registered=new Map();this.states=new Map();this.registrationStatus=new Map();this.suspended=false;this.pending=false;this.pendingBank=false;this.bankQueue=[];this.saving=false;this.last=new Map();this.lastResult=null;this.error='';this.corrupt=false;}
  async init(){try{const stat=await fs.stat(this.file);if(stat.size>65536)throw Error('Arquivo de atalhos excede 64 KiB.');this.config=validate(JSON.parse(await fs.readFile(this.file,'utf8')));}catch(e){if(e.code!=='ENOENT'){this.error='Atalhos não carregados; arquivo preservado: '+e.message;this.corrupt=true;}}this.reconcile();}
  setActions(actions){
   if(!Array.isArray(actions)||actions.length>4096||actions.some(a=>!a||typeof a.id!=='string'||a.id.length>256||typeof a.label!=='string'||a.label.length>240))throw Error('Lista de ações inválida.');
@@ -74,12 +74,16 @@ class Hotkeys extends EventEmitter {
   const action=b&&this.actions.get(b.action);
   if(!b||!action){this.lastResult={ok:false,message:'Bloco/ação ausente neste projeto.'};this.notify();return false;}
   if(!test&&(!b.enabled||!this.config.enabled||this.suspended))return false;
+  const bank=/\/bank\.[0-9]\.trigger$/.test(b.action);
+  if(this.pending&&this.pendingBank&&bank&&this.bankQueue.length<10){this.bankQueue.push({id,test,expires:Date.now()+250});return true;}
   if(this.pending){this.lastResult={ok:false,message:'Outra ação está em andamento; atalho ignorado.'};this.notify();return false;}
   const now=Date.now();if(!test&&now-(this.last.get(id)||0)<250)return false;this.last.set(id,now);
-  this.pending=true;
+  this.pending=true;this.pendingBank=bank;
   try{await this.execute(b);this.lastResult={ok:true,message:action.label+' — executado',at:now};return true;}
   catch(e){this.lastResult={ok:false,message:action.label+' — '+e.message,at:now};return false;}
-  finally{this.pending=false;this.notify();}
+  finally{this.pending=false;this.pendingBank=false;this.notify();
+   while(this.bankQueue.length){const next=this.bankQueue.shift();if(next.expires>=Date.now()){await this.fire(next.id,{test:next.test});break;}}
+  }
  }
  local(input){
   if(input.type!=='keyDown'||input.isAutoRepeat||input.meta)return false;
@@ -87,6 +91,6 @@ class Hotkeys extends EventEmitter {
   const b=this.config.bindings.find(b=>b.scope==='local'&&b.accelerator===key&&b.enabled&&this.actions.has(b.action));
   if(!b||!this.config.enabled||this.suspended)return false;void this.fire(b.id);return true;
  }
- close(){this.suspended=true;this.unregister();}
+ close(){this.bankQueue=[];this.suspended=true;this.unregister();}
 }
 module.exports={Hotkeys,accelerator,validate};

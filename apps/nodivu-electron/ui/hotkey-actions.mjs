@@ -8,6 +8,7 @@ export function actionsFor(snapshot,descriptor){
   if(snapshot.missing_plugins?.some(p=>p.node_id===node.id))continue;
   const d=descriptor(node),prefix=node.id+'/'+(node.block.plugin_id||node.block.kind)+'/';
   const add=(key,label,extra={})=>actions.push({id:prefix+key,label:`${d.title} [${node.id.slice(0,8)}] · ${label}`.slice(0,240),nodeId:node.id,...extra});
+  for(let slot=0;slot<(d.fileBankSlots||0);slot++)for(const [op,label] of [['trigger','tocar'],['stop','parar']])add(`bank.${slot}.${op}`,`Som ${slot+1} · ${label}`,{operation:'bank.'+op,slot});
   if(d.filePlayer)for(const [op,label] of [['play','reproduzir'],...(d.fileTransport?[['toggle','play / pause'],['pause','pausar'],['restart','recomeçar'],['stop','parar e voltar ao início']]:[])])add('player.'+op,label,{operation:'player.'+op});
   for(const field of d.fields||[]){
    if(field.readonly||field.type==='momentary'||!['checkbox','range','number','select'].includes(field.type))continue;

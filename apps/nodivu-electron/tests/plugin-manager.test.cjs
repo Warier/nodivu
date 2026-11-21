@@ -83,6 +83,25 @@ test('README is bounded text and image access stays within the package',async t=
  await assert.rejects(manager.image(key,'effect.clap'),/Imagem inválida/);
 });
 
+test('root README can display its own images within pixel limits and cannot read child package assets',async t=>{
+ const {manager,source}=await fixture(t);
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0tQAAAAASUVORK5CYII=','base64');
+ await fs.writeFile(path.join(source,'logo.png'),png);
+ const key=(await manager.install(source)).entries[0].key;
+ await fs.copyFile(path.join(source,'plugin.json'),path.join(manager.root,'plugin.json'));
+ const assets=path.join(manager.root,'assets');await fs.mkdir(assets);
+ await fs.writeFile(path.join(assets,'logo.png'),png);
+ assert.deepEqual(await manager.image('.','assets/logo.png'),await manager.image(key,'logo.png'));
+ await assert.rejects(manager.image('.',key+'/logo.png'),/outro pacote/);
+ await assert.rejects(manager.image('assets','logo.png'),/Pacote ausente/);
+ await fs.writeFile(path.join(assets,'renamed.gif'),png);
+ await assert.rejects(manager.image('.','assets/renamed.gif'),/cabeçalho/);
+ for(const [width,height] of [[4097,1],[4096,2049]]){
+  const large=Buffer.from(png);large.writeUInt32BE(width,16);large.writeUInt32BE(height,20);
+  await fs.writeFile(path.join(assets,'oversized.png'),large);
+  await assert.rejects(manager.image('.','assets/oversized.png'),/dimensões/);
+ }
+});
 test('real backend ignores disabled root, disabled children and pending removal before parsing',async t=>{
  const {dir,manager}=await fixture(t);
  for(const key of ['.','broken','worker']){

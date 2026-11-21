@@ -34,6 +34,8 @@ pub struct Camera {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Resource {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<u8>,
     pub node_id: NodeId,
     pub path: String,
 }
@@ -70,11 +72,13 @@ impl Project {
             }
         }
         seen.clear();
+        let mut resource_keys = std::collections::BTreeSet::new();
         for r in &project.resources {
             if !matches!(
                 project.graph.node(r.node_id)?.block,
                 crate::graph::Block::Plugin { .. }
-            ) || !seen.insert(r.node_id.0)
+            ) || !resource_keys.insert((r.node_id.0, r.slot))
+                || r.slot.is_some_and(|slot| slot >= 10)
                 || r.path.is_empty()
                 || r.path.len() > 4096
                 || r.path.contains('\0')
@@ -96,5 +100,30 @@ impl Project {
             source.selection.validate()?;
         }
         Ok(project)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Project;
+    use serde_json::json;
+    #[test]
+    fn bank_resources_keep_slot_identity_and_legacy_shape() {
+        let id = "00000000-0000-4000-8000-000000000001";
+        let mut value = json!({"format":"nodivu-project","version":1,"graph":{"schema_version":2,"nodes":[{"id":id,"block":{"kind":"plugin","plugin_id":"org.nodivu.soundboard","source":true,"bypass":false,"parameters":{}}}],"edges":[]},"positions":[{"node_id":id,"x":0,"y":0}],"camera":{"x":0,"y":0,"scale":1},"resources":[{"node_id":id,"slot":0,"path":"one.wav"},{"node_id":id,"slot":9,"path":"two.wav"}]});
+        let project = Project::parse(&value.to_string()).unwrap();
+        assert_eq!(project.resources[1].slot, Some(9));
+        value["resources"][1]["slot"] = json!(0);
+        assert!(Project::parse(&value.to_string()).is_err());
+        value["resources"][1]["slot"] = json!(10);
+        assert!(Project::parse(&value.to_string()).is_err());
+        value["resources"] = json!([{"node_id":id,"path":"legacy.wav"}]);
+        let project = Project::parse(&value.to_string()).unwrap();
+        assert_eq!(project.resources[0].slot, None);
+        assert!(
+            serde_json::to_value(project).unwrap()["resources"][0]
+                .get("slot")
+                .is_none()
+        );
     }
 }

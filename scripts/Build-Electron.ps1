@@ -17,6 +17,7 @@ Push-Location $nodivuRoot
 try {
     # Also initializes the installed MSVC x64 environment before Rust linking.
     & "$PSScriptRoot/Build-Mp3Plugin.ps1"
+    & "$PSScriptRoot/Build-SoundboardPlugin.ps1"
     & "$PSScriptRoot/Build-WindowsAudioPlugin.ps1"
     & "$PSScriptRoot/Build-AudioCleanup.ps1"
     # Static C runtime: no separate VC redistributable for this backend.

@@ -1,4 +1,5 @@
-import {openHotkeys} from './hotkeys.js';
+import {bankResources,resourceKey,bankPresentation,mountBank,syncBank} from './soundboard.mjs';
+import {openHotkeys,soundboardPreset} from './hotkeys.js';
 import {actionsFor,changeField} from './hotkey-actions.mjs';
 import { mountMomentary } from './momentary.mjs';
 import { createStudio, arrangeSettings } from './studio.js';
@@ -64,7 +65,7 @@ function requireSession(){if(!online||!snapshot)throw new Error('O backend ainda
 async function edit(mutator){requireSession();const graph=structuredClone(snapshot.graph);mutator(graph);apply(await api('graph.apply',{expected_revision:snapshot.revision,graph}));}
 function update(id,key,value){pending.set(id+':'+key,{id,key,value});updateDirty();if(!editTimer)editTimer=setTimeout(flush,60);}
 function flush(){editTimer=null;if(!online||busy||!pending.size)return;const changes=[...pending.values()];pending.clear();void perform(()=>edit(g=>{for(const c of changes){const n=g.nodes.find(n=>n.id===c.id);if(n){if(c.key.startsWith('parameter:'))n.block.parameters[c.key.slice(10)]=c.value;else n.block[c.key]=c.value;}}}));}
-function projectDocument(){return {format:'nodivu-project',version:1,graph:snapshot.graph,positions:snapshot.graph.nodes.map(n=>({node_id:n.id,...positions.get(n.id)})),camera:camera.save(),captures:snapshot.graph.nodes.map(n=>({node_id:n.id,selection:snapshot.plugin_states?.[n.id]?.capture_selection||(snapshot.missing_plugins?.some(p=>p.node_id===n.id)?savedCaptures.get(n.id):null)})).filter(c=>c.selection),resources:snapshot.graph.nodes.filter(n=>n.block.kind==='plugin').map(n=>({node_id:n.id,path:snapshot.plugin_states?.[n.id]?.file||resources.get(n.id)})).filter(r=>r.path)};}
+function projectDocument(){return {format:'nodivu-project',version:1,graph:snapshot.graph,positions:snapshot.graph.nodes.map(n=>({node_id:n.id,...positions.get(n.id)})),camera:camera.save(),captures:snapshot.graph.nodes.map(n=>({node_id:n.id,selection:snapshot.plugin_states?.[n.id]?.capture_selection||(snapshot.missing_plugins?.some(p=>p.node_id===n.id)?savedCaptures.get(n.id):null)})).filter(c=>c.selection),resources:snapshot.graph.nodes.filter(n=>n.block.kind==='plugin').flatMap(n=>[{node_id:n.id,path:snapshot.plugin_states?.[n.id]?.file||resources.get(n.id)},...bankResources(n,snapshot.plugin_states?.[n.id],resources)]).filter(r=>r.path)};}
 function updateDirty(){
  if(!snapshot||snapshot.graph.nodes.some(n=>!positions.has(n.id)))return;
  const stamp=JSON.stringify(projectDocument());if(savedStamp===null)savedStamp=stamp;
@@ -88,7 +89,7 @@ async function restoreDocument(result){
   for(const view of views.values())view.root.remove();views.clear();edgeStamp='';
   for(const p of result.project.positions)positions.set(p.node_id,{x:p.x,y:p.y});
   for(const c of result.project.captures||[])savedCaptures.set(c.node_id,c.selection);
-  for(const r of result.project.resources)resources.set(r.node_id,r.path);
+  for(const r of result.project.resources)resources.set(resourceKey(r),r.path);
   apply(result.snapshot);render();camera.restore(result.project.camera);
   message='';
   // Opening in the product resumes the validated session immediately. The API's
@@ -176,6 +177,7 @@ function buildContents(node,d,surface){
   }
   content.append(status,reason);
  }
+ if(d.fileBankSlots)mountBank(content,node,d.fileBankSlots,{compact:surface==='node',perform,command:bankCommand,preset:soundboardPreset,choose:()=>window.nodivu.chooseFile()});
  if(d.captureSource)mountCapture(content,node.id,{api,perform,schedule:action=>{const attempt=()=>{if(!views.has(node.id)||!content.isConnected)return;if(busy||polling){setTimeout(attempt,80);return;}void perform(action);};setTimeout(attempt,0);},configure:async(id,selection,token)=>{await settleEdits();apply(await api('capture.configure',{node_id:id,selection,...(token?{token}:{})}));}});
  if(d.worker){const status=el('p','','small'),restart=el('button','Reiniciar worker');status.dataset.workerStatus='';restart.dataset.action='restart';restart.onclick=()=>void perform(async()=>apply(await api('plugin.command',{node_id:node.id,action:'restart'})));content.append(status,restart);}
  const note=el('p',d.note,'small');note.dataset.blockNote='';content.append(note);
@@ -202,7 +204,7 @@ function syncNode(node,index){const pos=location(node,index),v=views.get(node.id
  if(node.block.kind==='output'){const p=outputPresentation(devices.find(d=>d.endpoint_id===node.block.endpoint_id)),title=v.root.querySelector('.node-title>div');if(title.firstChild.textContent!==p.title){title.firstChild.textContent=p.title;title.querySelector('small').textContent=p.subtitle;}v.root.querySelector('[data-block-note]').textContent=p.note;if(selectedId===node.id&&inspectorView)inspectorView.root.querySelector('[data-block-note]').textContent=p.note;}
  syncControls(node,v);if(selectedId===node.id&&inspectorView)syncControls(node,inspectorView);
 }
-function syncControls(node,v){const ps=snapshot.plugin_states?.[node.id];const fault=v.root.querySelector('[data-plugin-fault]');if(fault){fault.hidden=!ps?.fault;fault.textContent=ps?.fault?.message||'';}syncCapture(v.root,ps,busy,online);if(ps?.file)resources.set(node.id,ps.file);const status=v.root.querySelector('[data-player-status]');if(status){
+function syncControls(node,v){syncBank(v.root,{snapshot,node,devices,online,busy,resources});const ps=snapshot.plugin_states?.[node.id];const fault=v.root.querySelector('[data-plugin-fault]');if(fault){fault.hidden=!ps?.fault;fault.textContent=ps?.fault?.message||'';}syncCapture(v.root,ps,busy,online);if(ps?.file)resources.set(node.id,ps.file);const status=v.root.querySelector('[data-player-status]');if(status){
   const state=playerState(node),play=v.root.querySelector('[data-action=play]'),reason=v.root.querySelector('[data-player-blocker]');
   status.textContent=state.name+' · '+state.fileState;status.title=state.file;
   const transport=descriptor(node).fileTransport,playing=transport&&ps?.status===3;
@@ -242,7 +244,7 @@ function render(){
  // Disable palette actions even before the first valid snapshot exists.
  for(const b of $('palette').querySelectorAll('button'))if(!snapshot||!online||busy)b.disabled=true;
  if(!snapshot){$('status').textContent=busy?'Conectando…':'Backend indisponível';$('error').textContent=message;$('error').hidden=!message;return;}
- for(const[id,v]of views)if(!snapshot.graph.nodes.some(n=>n.id===id)){v.root.remove();if(selectedId===id)clearSelection();views.delete(id);positions.delete(id);resources.delete(id);playerErrors.delete(id);if(armed?.id===id)armed=null;}
+ for(const[id,v]of views)if(!snapshot.graph.nodes.some(n=>n.id===id)){v.root.remove();if(selectedId===id)clearSelection();views.delete(id);positions.delete(id);resources.delete(id);for(let slot=0;slot<10;slot++)resources.delete(`${id}:${slot}`);playerErrors.delete(id);if(armed?.id===id)armed=null;}
  snapshot.graph.nodes.forEach(syncNode);
  for(const node of snapshot.graph.nodes){const v=views.get(node.id),metric=snapshot.metrics?.route_nodes?.find(m=>m.node_id===node.id),peak=online&&snapshot.engine_state==='running'?(metric?.peak||0):0,db=peak>0?20*Math.log10(peak):-Infinity;v.root.querySelector('[data-node-meter]').value=Math.max(0,Math.min(1,(db+60)/60));v.root.querySelector('[data-node-level]').textContent=Number.isFinite(db)?db.toFixed(1)+' dBFS':'Silêncio';}
 canvasSize();$('empty').hidden=snapshot.graph.nodes.length>0;
@@ -260,11 +262,25 @@ async function playerCommand(id,action,path,position_ms){
  try{apply(await api('plugin.command',{node_id:id,action,...(path?{path}:{}),...(position_ms!==undefined?{position_ms}:{})}));}
  catch(e){playerErrors.set(id,e.message);throw e;}
 }
+async function bankCommand(id,slot,action,path){
+ await settleEdits();
+ if(action==='trigger'){
+  const node=snapshot.graph.nodes.find(n=>n.id===id);
+  const state=bankPresentation({snapshot,node,slot,devices,online,busy:false});
+  if(!state.canPlay)throw Error(state.reason);
+ }
+ apply(await api('plugin.bank',{node_id:id,slot,action,...(path?{path}:{})}));
+}
 async function activateAudio(){
  await settleEdits();await refresh();apply(await api('audio.retry'));
  // Opening a user-selected project prepares its saved files, never starts Play.
  const failures=[];
  for(const node of snapshot.graph.nodes){
+  for(const resource of bankResources(node,snapshot.plugin_states?.[node.id],resources)){
+   if(resource.slot>=(descriptor(node)?.fileBankSlots||0))continue;
+   const state=bankPresentation({snapshot,node,slot:resource.slot,devices,online,busy:false,savedPath:resource.path});
+   if(state.needsLoad)try{await bankCommand(node.id,resource.slot,'load',resource.path);}catch(e){failures.push(e.message);}
+  }
   if(!descriptor(node)?.filePlayer||!playerState(node).needsLoad)continue;
   try{await playerCommand(node.id,'load',resources.get(node.id));}catch(e){failures.push(e.message);}
  }
@@ -408,6 +424,7 @@ window.nodivu.onHotkey(async(binding,execution)=>{
   }
   const node=snapshot.graph.nodes.find(n=>n.id===action.nodeId);
   if(!node)throw Error('Bloco ausente.');
+  if(action.operation.startsWith('bank.')){await bankCommand(node.id,action.slot,action.operation.slice(5));return;}
   if(action.operation.startsWith('player.')){
    let op=action.operation.slice(7);const playing=snapshot.plugin_states?.[node.id]?.status===3;
    if(op==='toggle')op=playing?'pause':'play';

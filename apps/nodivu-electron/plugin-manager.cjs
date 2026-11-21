@@ -2,9 +2,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const {randomUUID} = require('node:crypto');
 const {PluginVersions,metadata,compareVersion}=require('./plugin-versions.cjs');
+const {readBounded,readImage}=require('./plugin-assets.cjs');
 
 const DISABLED = '.nodivu-disabled', REMOVED = '.nodivu-removed';
 const exists = file => fs.lstat(file).then(()=>true, e=>{if(e.code==='ENOENT')return false;throw e;});
+const hasManifest = async folder => await exists(path.join(folder,'plugin.json')) || await exists(path.join(folder,'worker.json'));
 
 // Import never executes plugin code. Limits include all files, including optional assets.
 async function inspectFolder(folder) {
@@ -80,7 +82,7 @@ class PluginManager {
       const removed=await exists(path.join(folder,REMOVED));
       const enabled=!removed&&!await exists(path.join(folder,DISABLED));
       rows.push({key,id:typeof data.plugin_id==='string'?data.plugin_id:'',title:typeof data.title==='string'?data.title:key,
-        kind:native?'CLAP nativo':'Worker',error,enabled,removed,metadata:meta,protected:['.','mp3','windows-audio','voice-cleanup','peak-limiter'].includes(key),
+        kind:native?'CLAP nativo':'Worker',error,enabled,removed,metadata:meta,protected:['.','mp3','windows-audio','voice-cleanup','peak-limiter','soundboard'].includes(key),
         pending:this.initial.has(key)?this.initial.get(key)!==enabled||removed:true});
     }
     return rows.sort((a,b)=>a.title.localeCompare(b.title));
@@ -178,17 +180,20 @@ class PluginManager {
     for(const name of ['README.md','readme.md']){
       const file=path.join(folder,name);if(!await exists(file))continue;
       const stat=await fs.lstat(file);if(stat.isSymbolicLink()||!stat.isFile()||stat.size>256*1024)throw new Error('README inválido ou maior que 256 KiB.');
-      markdown=await fs.readFile(file,'utf8');break;
+      markdown=(await readBounded(file,256*1024,'README')).toString('utf8');break;
     }
     return {entry,markdown};
   }
   async image(key,relative){
     if(typeof relative!=='string'||relative.length>240||/[\\:#?]/.test(relative)||relative.startsWith('/')||relative.split('/').some(p=>p==='..'))throw new Error('Imagem deve estar dentro do pacote.');
-    const folder=await this.checkedFolder(key),file=await fs.realpath(path.join(folder,relative));
-    if(!file.startsWith(folder+path.sep))throw new Error('Imagem fora do pacote.');
-    const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'}[path.extname(file).toLowerCase()];
-    if(!mime||(await fs.stat(file)).size>2*1024*1024)throw new Error('Imagem inválida ou maior que 2 MiB.');
-    return {url:'data:'+mime+';base64,'+(await fs.readFile(file)).toString('base64')};
+    const folder=await fs.realpath(await this.checkedFolder(key));
+    if(!await hasManifest(folder))throw new Error('Pacote ausente.');
+    const file=await fs.realpath(path.join(folder,relative));
+    const nested=path.relative(folder,file),parts=nested.split(path.sep);
+    if(!nested||parts[0]==='..'||path.isAbsolute(nested))throw new Error('Imagem fora do pacote.');
+    // The legacy root package shares its directory with independently installed packages.
+    if(key==='.'&&parts.length>1&&await hasManifest(path.join(folder,parts[0])))throw new Error('Imagem pertence a outro pacote.');
+    return readImage(file,relative);
   }
 }
 module.exports={PluginManager,inspectFolder};

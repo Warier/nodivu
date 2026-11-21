@@ -6,11 +6,12 @@ const {pipeline}=require('node:stream/promises');
 const {crc32}=require('node:zlib');
 const yauzl=require('yauzl');
 const LIMIT=256*1024*1024;
+const reservedWindowsName = part => /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)/i.test(part);
 
 function safeName(name){
  if(typeof name!=='string'||name.includes('\\')||name.startsWith('/')||name.length>240)throw new Error('Caminho inválido no ZIP.');
  const parts=name.replace(/\/$/,'').split('/');
- if(parts.length>13||parts.some(p=>!p||p==='.'||p==='..'||/[\x00-\x1f:<>"|?*]/.test(p)||/[. ]$/.test(p)||/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(p)))throw new Error('Caminho inválido no ZIP.');
+ if(parts.length>13||parts.some(p=>!p||p==='.'||p==='..'||/[\x00-\x1f:<>"|?*]/.test(p)||/[. ]$/.test(p)||reservedWindowsName(p)))throw new Error('Caminho inválido no ZIP.');
  return parts.join(path.sep);
 }
 // Destination must be a new, private directory. Extraction never runs package scripts.
@@ -47,4 +48,4 @@ async function extractArchive(file,destination){
  if(children.length===1&&children[0].isDirectory())return path.join(destination,children[0].name);
  throw new Error('ZIP precisa conter plugin.json na raiz ou em uma única pasta.');
 }
-module.exports={extractArchive,safeName};
+module.exports={extractArchive,safeName,reservedWindowsName};

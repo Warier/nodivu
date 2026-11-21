@@ -11,14 +11,15 @@ const electronExecutable = require('electron');
   await fs.mkdir(path.join(app, 'bin'), { recursive: true });
   await fs.copyFile(path.join(__dirname,'hotkey-execution.cjs'),path.join(app,'hotkey-execution.cjs'));
   await fs.copyFile(path.join(__dirname,'diagnostic-export.cjs'),path.join(app,'diagnostic-export.cjs'));
-  for (const file of ['hotkeys.cjs','app-menu.cjs','smoke-hotkeys.cjs','smoke-utility-store.cjs','smoke-cleanup.cjs','plugin-cache.cjs','plugin-catalog.cjs','plugin-store.cjs','smoke-plugin-store.cjs','plugin-versions.cjs','plugin-archive.cjs','smoke-plugin-manager.cjs','plugin-manager.cjs','smoke-studio.cjs','smoke-recovery.cjs','project-recovery.cjs','smoke-monitor.cjs','smoke-update.cjs','updates.cjs','plugin-storage.cjs','diagnostics.cjs','smoke-startup.cjs','package.json', 'demo-engine.cjs', 'main.cjs', 'preload.cjs', 'engine.cjs', 'project-files.cjs', 'recent-projects.cjs', 'smoke.cjs','smoke-capture.cjs', 'smoke-virtual-cable.cjs','smoke-plugin.cjs','smoke-mp3.cjs','smoke-worker.cjs','smoke-routing.cjs','smoke-viewport.cjs','smoke-project.cjs'])
+  await fs.copyFile(path.join(__dirname,'plugin-assets.cjs'),path.join(app,'plugin-assets.cjs'));
+  for (const file of ['smoke-soundboard.cjs','hotkeys.cjs','app-menu.cjs','smoke-hotkeys.cjs','smoke-utility-store.cjs','smoke-cleanup.cjs','plugin-cache.cjs','plugin-catalog.cjs','plugin-store.cjs','smoke-plugin-store.cjs','plugin-versions.cjs','plugin-archive.cjs','smoke-plugin-manager.cjs','plugin-manager.cjs','smoke-studio.cjs','smoke-recovery.cjs','project-recovery.cjs','smoke-monitor.cjs','smoke-update.cjs','updates.cjs','plugin-storage.cjs','diagnostics.cjs','smoke-startup.cjs','package.json', 'demo-engine.cjs', 'main.cjs', 'preload.cjs', 'engine.cjs', 'project-files.cjs', 'recent-projects.cjs', 'smoke.cjs','smoke-capture.cjs', 'smoke-virtual-cable.cjs','smoke-plugin.cjs','smoke-mp3.cjs','smoke-worker.cjs','smoke-routing.cjs','smoke-viewport.cjs','smoke-project.cjs'])
     await fs.copyFile(path.join(__dirname, file), path.join(app, file));
   for(const pkg of await require('../../scripts/runtime-packages.cjs')(__dirname))await fs.cp(pkg.dir,path.join(app,'node_modules',pkg.relative),{recursive:true});
   await fs.cp(path.join(__dirname,'store'),path.join(app,'store'),{recursive:true});
   await fs.cp(path.join(__dirname, 'demo'), path.join(app, 'demo'), {recursive:true});
   await fs.cp(path.join(__dirname, 'ui'), path.join(app, 'ui'), { recursive: true });
   await fs.copyFile(path.join(root, 'target/release/nodivu-app-backend.exe'), path.join(app, 'bin/nodivu-app-backend.exe'));
-  for (const name of ['mp3', 'windows-audio', 'voice-cleanup', 'peak-limiter']) {
+  for (const name of ['mp3', 'windows-audio', 'voice-cleanup', 'peak-limiter','soundboard']) {
     await fs.cp(path.join(root, '.local/plugins', name), path.join(stage, 'plugins', name), { recursive: true });
   }
   await require('../../scripts/package-licenses.cjs')(root, stage);

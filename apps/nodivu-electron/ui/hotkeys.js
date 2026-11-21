@@ -1,3 +1,4 @@
+import {bankBindings} from './soundboard.mjs';
 const $=id=>document.getElementById(id),dialog=$('hotkeys-dialog');
 let state=null,editing=null,filter=null;
 const element=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;};
@@ -65,3 +66,9 @@ $('hotkey-key').onkeydown=e=>{
  $('hotkey-key').value=[e.ctrlKey?'Control':null,e.altKey?'Alt':null,e.shiftKey?'Shift':null,e.metaKey?'Win':null,names[e.key]||e.key].filter(Boolean).join('+');
 };
 window.nodivu.onHotkeys(state=>{const conflicts=Object.values(state.states).filter(s=>/Conflito|Falha ao registrar/.test(s)).length;$('hotkeys-open').textContent='⌨ Atalhos de teclado'+(conflicts?' · '+conflicts+' conflito(s)':'');if(dialog.open)show(state);});
+
+export async function soundboardPreset(nodeId){
+ const current=await call('list');
+ await call('save',bankBindings(current.config,current.actions,nodeId,()=>crypto.randomUUID()));
+ await openHotkeys(nodeId);
+}

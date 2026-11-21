@@ -14,6 +14,12 @@ O projeto está em fase experimental. Este repositório contém o código necess
 
 Quem usa 0.1.3-beta.1 ou 0.2.0 pode procurar atualizações em **Sistema**. O app verifica novas versões ao abrir; download e reinício exigem confirmação para preservar o trabalho e o áudio em andamento. Projetos e plugins do perfil são preservados. A instalação do VB-CABLE continua opcional e separada do motor; não mudamos dispositivos padrão do Windows.
 
+## Em desenvolvimento: 0.2.3-dev.1
+
+**Soundboard** incluído no Electron e no Qt: dez sons no mesmo bloco, reproduzidos simultaneamente, com atalhos individuais. Use o inspetor para escolher MP3, WAV ou M4A de até 60 segundos/32 MiB por posição. O preset associa Ctrl+Shift+1…0, com personalização em Atalhos. Salvar/abrir preserva os arquivos sem iniciar reprodução. [Guia](plugins/soundboard/README.md) · [Contrato API 3](FILE-BANK.md).
+
+Esta novidade ainda não faz parte do instalador público 0.2.2; está no build de desenvolvimento.
+
 ## Novidades da 0.2.2
 
 - Atalhos globais e por bloco para player, ganho, bypass, silêncio e Escuta; macros de mouse podem ser remapeadas para F13–F24.
@@ -30,7 +36,7 @@ Quem usa 0.1.3-beta.1 ou 0.2.0 pode procurar atualizações em **Sistema**. O ap
 - Limpeza de voz RNNoise na CPU (30 ms) e limitador de picos (5 ms), com intensidade/teto no bloco e ajustes no inspetor. Latências nativas e bypass são alinhados pelo Mixer.
 - Projetos abrem mesmo com plugins ausentes/desativados: parâmetros, fios e recursos ficam preservados; somente os caminhos dependentes ficam silenciosos.
 
-O catálogo público experimental oferece **Ducking** e **Botão de fala**, com metadados assinados e README na loja. Os quatro plugins principais acompanham o app; outros podem ser instalados pela loja ou importados localmente. Os dois exemplos exigem host API 2, incluído na 0.2.2. Instâncias ainda usam um pool limitado (oito tipos habilitados/oito blocos no grafo). Erros recuperáveis de processamento silenciam o bloco afetado; não há isolamento de crash de DLL nem loja de modelos de IA pesados.
+O catálogo público experimental oferece **Ducking** e **Botão de fala**, com metadados assinados e README na loja. Os cinco plugins principais (incluindo Soundboard no build de desenvolvimento) acompanham o app; outros podem ser instalados pela loja ou importados localmente. Os dois exemplos exigem host API 2, incluído na 0.2.2. Instâncias ainda usam um pool limitado (oito tipos habilitados/oito blocos no grafo). Erros recuperáveis de processamento silenciam o bloco afetado; não há isolamento de crash de DLL nem loja de modelos de IA pesados.
 
 ## Por que Nodivu?
 

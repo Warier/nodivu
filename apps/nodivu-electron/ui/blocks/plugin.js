@@ -11,7 +11,7 @@ export function pluginDescriptor(packageInfo) {
     controls.push({parameter:p.id,label:'Parâmetro '+p.id,widget:'number',unit:'',group:''});
   const latency=Number(packageInfo.latency_frames||0)/48;
   return {kind:'plugin',pluginId:packageInfo.id,title:a.title,subtitle:packageInfo.worker?'Worker Python · +20 ms':`Plugin local · CLAP${latency?' · +'+Number(latency.toFixed(2))+' ms':''}`,icon:'◇',worker:packageInfo.worker,
-    accent:a.accent,layout:a.layout,inputs:packageInfo.inputs?.length??(packageInfo.source?0:1),inputLabels:packageInfo.input_labels,outputs:packageInfo.consumer?0:1,captureSource:packageInfo.capture_source,filePlayer:packageInfo.file_player,fileTransport:packageInfo.file_transport,
+    accent:a.accent,layout:a.layout,inputs:packageInfo.inputs?.length??(packageInfo.source?0:1),inputLabels:packageInfo.input_labels,outputs:packageInfo.consumer?0:1,fileBankSlots:Math.min(10,Math.max(0,packageInfo.file_bank_slots||0)),captureSource:packageInfo.capture_source,filePlayer:packageInfo.file_player,fileTransport:packageInfo.file_transport,
     fields:[...controls.map((c,index)=>{
       const p=packageInfo.parameters.find(p=>p.id===c.parameter);
       return {key:'parameter:'+p.id,label:c.label,group:c.group,unit:c.unit,readonly:p.readonly,page:c.page,help:c.help,advanced:c.advanced,options:c.options||[],quick:c.quick||(!controls.some(c=>c.quick)&&index===0&&!c.advanced),
