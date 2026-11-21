@@ -53,7 +53,7 @@ CatalogPresentation catalogPresentation(const QJsonObject& entry, const StoreSta
     const auto platform = entry.value(QStringLiteral("platform")).toString();
     const int api = entry.value(QStringLiteral("host_api")).toInt();
     result.reason =
-        platform != QStringLiteral("win32-x64") || (api != 1 && api != 2)
+        platform != QStringLiteral("win32-x64") || (api != 1 && api != 2 && api != 3)
             ? QStringLiteral("Requer %1 / contrato %2.").arg(platform).arg(api)
         : !pending.isEmpty()
             ? QStringLiteral("Versão %1 já agendada para a próxima abertura.").arg(pending)
@@ -96,7 +96,8 @@ QString StoreService::validateCatalog(const QJsonObject& catalog) {
             !PackageService::safeRelativePath(item.value(QStringLiteral("readme")).toString()) ||
             size < 1 || size > 256LL * 1024LL * 1024 ||
             (item.value(QStringLiteral("host_api")).toInt() != 1 &&
-             item.value(QStringLiteral("host_api")).toInt() != 2) ||
+             item.value(QStringLiteral("host_api")).toInt() != 2 &&
+             item.value(QStringLiteral("host_api")).toInt() != 3) ||
             !boundedText(item, QStringLiteral("platform"), 32))
             return QStringLiteral("Item incompatível ou inválido no catálogo.");
         const auto tier = item.value(QStringLiteral("resource_tier")).toString();

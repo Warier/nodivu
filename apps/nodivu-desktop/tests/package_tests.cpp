@@ -2,6 +2,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QMap>
 #include <QTemporaryDir>
 #include <QtTest>
 extern "C" {
@@ -13,6 +14,21 @@ void writeFixture(const QString& path, const QByteArray& bytes) {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size())
         qFatal("Could not create isolated test fixture");
+}
+void writeZipFixture(const QString& path, const QMap<QByteArray, QByteArray>& files) {
+    mz_zip_archive archive{};
+    QVERIFY(mz_zip_writer_init_heap(&archive, 0, 0));
+    for (auto it = files.cbegin(); it != files.cend(); ++it) {
+        const auto& content = it.value();
+        QVERIFY(mz_zip_writer_add_mem(&archive, it.key().constData(), content.constData(),
+                                      static_cast<size_t>(content.size()), MZ_DEFAULT_COMPRESSION));
+    }
+    void* bytes = nullptr;
+    size_t size = 0;
+    QVERIFY(mz_zip_writer_finalize_heap_archive(&archive, &bytes, &size));
+    writeFixture(path, QByteArray(static_cast<const char*>(bytes), static_cast<qsizetype>(size)));
+    mz_free(bytes);
+    mz_zip_writer_end(&archive);
 }
 QString inertPackage(const QString& parent, const QString& version) {
     const auto folder = QDir(parent).filePath(QStringLiteral("source-") + version);
@@ -131,23 +147,38 @@ class PackageTests final : public QObject {
     void rejectsZipTraversalBeforeExtracting() {
         QTemporaryDir directory;
         const auto zip = QDir(directory.path()).filePath(QStringLiteral("attack.zip"));
-        mz_zip_archive archive{};
-        QVERIFY(mz_zip_writer_init_heap(&archive, 0, 0));
-        const QByteArray content("unsafe");
-        QVERIFY(mz_zip_writer_add_mem(&archive, "../escape", content.constData(),
-                                      static_cast<size_t>(content.size()), MZ_DEFAULT_COMPRESSION));
-        void* bytes = nullptr;
-        size_t size = 0;
-        QVERIFY(mz_zip_writer_finalize_heap_archive(&archive, &bytes, &size));
-        writeFixture(zip,
-                     QByteArray(static_cast<const char*>(bytes), static_cast<qsizetype>(size)));
-        mz_free(bytes);
-        mz_zip_writer_end(&archive);
+        writeZipFixture(zip, {{"../escape", "unsafe"}});
         nodivu::PackageService packages(
             QDir(directory.path()).filePath(QStringLiteral("profile/plugins")));
         QVERIFY(!packages.importZip(zip).ok());
         QVERIFY(!QFileInfo::exists(QDir(directory.path()).filePath(QStringLiteral("escape"))));
         QVERIFY(packages.installed().isEmpty());
+    }
+    void zipExtractionIsTemporaryOnSuccessFailureAndCancellation() {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QDir source(inertPackage(directory.path(), QStringLiteral("1.0.0")));
+        QMap<QByteArray, QByteArray> files;
+        for (const auto& name : source.entryList(QDir::Files)) {
+            QFile file(source.filePath(name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            files.insert(name.toUtf8(), file.readAll());
+        }
+        const QDir root(directory.path());
+        const auto zip = root.filePath(QStringLiteral("inert.zip"));
+        writeZipFixture(zip, files);
+        nodivu::PackageService packages(root.filePath(QStringLiteral("profile/plugins")));
+        const QDir unpack(root.filePath(QStringLiteral("profile/plugin-unpack")));
+        const auto temporaryFiles = QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden;
+        QVERIFY(!packages.importZip(zip, nullptr, QStringLiteral("different.id")).ok());
+        QVERIFY(unpack.entryList(temporaryFiles).isEmpty());
+        const std::atomic_bool cancelled{true};
+        QVERIFY(!packages.importZip(zip, &cancelled).ok());
+        QVERIFY(unpack.entryList(temporaryFiles).isEmpty());
+        const auto installed = packages.importZip(zip);
+        QVERIFY2(installed.ok(), qPrintable(installed.error));
+        QCOMPARE(packages.installed().size(), 1);
+        QVERIFY(unpack.entryList(temporaryFiles).isEmpty());
     }
 };
 QTEST_GUILESS_MAIN(PackageTests)

@@ -56,6 +56,8 @@ target_link_libraries(nodivu_frontend_core PUBLIC Qt6::Core Qt6::Network nodivu_
 target_compile_definitions(nodivu_frontend_core PUBLIC QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII)
 
 add_library(nodivu_frontend_ui STATIC
+    src/features/soundboard/soundboard_widget.cpp
+    src/features/soundboard/soundboard_widget.hpp
     src/features/hotkeys/hotkey_service.hpp
     src/features/hotkeys/hotkey_service.cpp
     src/features/hotkeys/hotkey_dialog.cpp

@@ -268,7 +268,7 @@ impl<B: DeviceBackend> AppBackend<B> {
             "system.hello" => {
                 empty(request.params)?;
                 Ok(
-                    json!({"protocol_version":1,"plugin_host_api":2,"backend":"nodivu-app-backend","api":"graph-v2","blocks":["capture","output","gain","tone","mixer","meter"],"max_gain_blocks":8,"max_plugin_blocks":8,"max_nodes":32,"max_edges":64,"live_connections":true,"accepted_graph_versions":[1,2],"ports":{"mixer":{"inputs":[0,1,2,3],"outputs":[0]},"meter":{"inputs":[0],"outputs":[]}},"fanout":true}),
+                    json!({"protocol_version":1,"plugin_host_api":3,"backend":"nodivu-app-backend","api":"graph-v2","blocks":["capture","output","gain","tone","mixer","meter"],"max_gain_blocks":8,"max_plugin_blocks":8,"max_nodes":32,"max_edges":64,"live_connections":true,"accepted_graph_versions":[1,2],"ports":{"mixer":{"inputs":[0,1,2,3],"outputs":[0]},"meter":{"inputs":[0],"outputs":[]}},"fanout":true}),
                 )
             }
             "plugin.gesture" => {
@@ -285,6 +285,22 @@ impl<B: DeviceBackend> AppBackend<B> {
                     .plugin_gesture(p.node_id, p.parameter, p.pressed)
                     .map_err(|e| ApiError::invalid(e.to_string()))?;
                 Ok(json!({"accepted":true}))
+            }
+            "plugin.bank" => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Params {
+                    node_id: nodivu_core::graph::NodeId,
+                    action: String,
+                    slot: u8,
+                    path: Option<String>,
+                }
+                let p: Params = params(request.params)?;
+                self.graph.node(p.node_id)?;
+                self.backend
+                    .plugin_bank(p.node_id, &p.action, p.slot, p.path.as_deref())
+                    .map_err(|e| ApiError::invalid(e.to_string()))?;
+                Ok(self.snapshot())
             }
             "plugin.command" => {
                 #[derive(serde::Deserialize)]
@@ -343,9 +359,15 @@ impl<B: DeviceBackend> AppBackend<B> {
                         return Err(ApiError::invalid("Recurso sem plugin."));
                     };
                     if !catalog.as_array().is_some_and(|items| {
-                        items
-                            .iter()
-                            .any(|item| item["id"] == *plugin_id && item["file_player"] == true)
+                        items.iter().any(|item| {
+                            item["id"] == *plugin_id
+                                && match resource.slot {
+                                    Some(slot) => item["file_bank_slots"]
+                                        .as_u64()
+                                        .is_some_and(|count| u64::from(slot) < count),
+                                    None => item["file_player"] == true,
+                                }
+                        })
                     }) {
                         return Err(ApiError::invalid("Plugin sem suporte a arquivo."));
                     }

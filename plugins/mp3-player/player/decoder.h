@@ -10,8 +10,9 @@ struct Clip {
   std::vector<float> pcm;
   unsigned rate = 0;
 };
-// Borrowed only during one decoder call. The Player owns these atomics and joins
-// its decoder before destroying them. A new request invalidates the old token.
+// Borrowed only during one decoder call. The Player owns these atomics and
+// joins its decoder before destroying them. A new request invalidates the old
+// token.
 struct DecodeCancellation {
   const std::atomic<bool> &stopping;
   const std::atomic<uint64_t> &current_revision;
@@ -20,5 +21,9 @@ struct DecodeCancellation {
     return stopping.load() || current_revision.load() != revision;
   }
 };
-using DecodeFunction = Clip (*)(const std::wstring &, const DecodeCancellation &);
+using DecodeFunction = Clip (*)(const std::wstring &,
+                                const DecodeCancellation &);
 Clip decode_file(const std::wstring &path, const DecodeCancellation &cancel);
+
+Clip decode_file_limited(const std::wstring &path,
+                         const DecodeCancellation &cancel, unsigned seconds);

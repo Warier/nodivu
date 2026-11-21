@@ -14,13 +14,13 @@ Requisitos: PowerShell 7, Rust conforme `rust-toolchain.toml`, Visual Studio 202
 ./scripts/Start-Desktop.ps1
 ```
 
-O build completo compila o backend existente, os quatro plugins principais e o frontend. Para editar somente a interface, use `./scripts/Build-Desktop.ps1 -FrontendOnly -Test`. Não há arquivos `.ui` nem editor gráfico obrigatório: widgets, layout, tema e cena são definidos por código C++.
+O build completo compila o backend existente, os cinco plugins principais e o frontend. Para editar somente a interface, use `./scripts/Build-Desktop.ps1 -FrontendOnly -Test`. Não há arquivos `.ui` nem editor gráfico obrigatório: widgets, layout, tema e cena são definidos por código C++.
 
 ```powershell
 ./scripts/Build-Release.ps1 -SkipBuild
 ```
 
-Gera ZIP portátil, instalador NSIS por usuário, licenças e inventário SHA256 em `.local/qt-packages`. Não publica nem instala automaticamente. O ZIP inclui `Nodivu Portable.cmd`, que usa perfil separado ao lado do executável. A instalação normal usa `%APPDATA%/Nodivu`; projetos ficam em Documentos/Nodivu/Projetos.
+Gera ZIP portátil, instalador NSIS por usuário, licenças e inventário SHA256 em `.local/qt-packages`. Não publica nem instala automaticamente. O ZIP inclui `Nodivu Portable.cmd`, que usa perfil separado ao lado do executável. A instalação normal usa `%APPDATA%/NodivuQt`; projetos ficam em Documentos/Nodivu/Projetos-Qt.
 
 [Guia técnico e testes](apps/nodivu-desktop/README.md) · [Extensão de plugins e controles](apps/nodivu-desktop/EXTENDING.md) · [Atualizador](apps/nodivu-desktop/UPDATES.md).
 
@@ -29,6 +29,7 @@ Gera ZIP portátil, instalador NSIS por usuário, licenças e inventário SHA256
 Adicione blocos na biblioteca e conecte suas portas. Uma saída pode ramificar; cada porta de entrada recebe um fio. Use entradas distintas do Mixer para somar fontes. O inspetor apresenta controles definidos pelos descritores dos plugins.
 
 - **Entrada, tom e captura de aplicativos:** fontes locais de áudio; a captura pode incluir subprocessos.
+- **Soundboard (0.2.3-dev.1):** dez sons simultâneos em um bloco, MP3/WAV/M4A de até 60 s por posição, preset de atalhos Ctrl+Shift+1…0 e arquivos persistidos. Escolha arquivos pelo inspetor. [Uso e limites](plugins/soundboard/README.md), [contrato](FILE-BANK.md).
 - **Player:** MP3, WAV e M4A/AAC até 10 minutos/256 MiB; reprodução, pausa e busca.
 - **Ganho, Mixer, limpeza de voz e limitador:** processamento no backend, sem PCM passando pela interface.
 - **Saída e Escuta:** dispositivos selecionados por IDs do backend, sem alterar padrões ou volumes do Windows.

@@ -192,14 +192,19 @@ class StoreUiTests final : public QObject {
             nodivu::catalogPresentation(entry, state).reason.contains(QStringLiteral("linux-x64")));
         entry.insert(QStringLiteral("platform"), QStringLiteral("win32-x64"));
         entry.insert(QStringLiteral("host_api"), 3);
+        QVERIFY(!nodivu::catalogPresentation(entry, state)
+                     .reason.contains(QStringLiteral("contrato 3")));
+        entry.insert(QStringLiteral("host_api"), 4);
         QVERIFY(nodivu::catalogPresentation(entry, state)
-                    .reason.contains(QStringLiteral("contrato 3")));
+                    .reason.contains(QStringLiteral("contrato 4")));
     }
     void readmeNeverLoadsRemoteFileSvgOrTraversalResources() {
         QTemporaryDir directory;
         QImage image(8, 8, QImage::Format_RGB32);
         image.fill(Qt::green);
         QVERIFY(image.save(QDir(directory.path()).filePath(QStringLiteral("logo.png"))));
+        QVERIFY(
+            image.save(QDir(directory.path()).filePath(QStringLiteral("wrong-codec.png")), "BMP"));
         nodivu::ReadmeView view;
         nodivu::ReadmeContent content;
         content.directory = directory.path();
@@ -214,7 +219,8 @@ class StoreUiTests final : public QObject {
         for (const auto& name :
              {QStringLiteral("https://example.com/logo.png"),
               QStringLiteral("file:///C:/Windows/logo.png"), QStringLiteral("../logo.png"),
-              QStringLiteral("logo.svg"), QStringLiteral("data:image/png;base64,AAAA")})
+              QStringLiteral("logo.svg"), QStringLiteral("wrong-codec.png"),
+              QStringLiteral("data:image/png;base64,AAAA")})
             QVERIFY(view.document()
                         ->resource(QTextDocument::ImageResource, QUrl(name))
                         .value<QImage>()

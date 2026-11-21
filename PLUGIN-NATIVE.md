@@ -1,4 +1,6 @@
-# Perfil nativo de plugins — host_api 2
+# Perfil nativo de plugins — host_api 2 e 3
+
+API 3 acrescenta o banco de arquivos opcional para fontes multiáudio. Veja [FILE-BANK](FILE-BANK.md). Plugins que não usam esta capacidade podem continuar declarando API 1/2.
 
 Esta extensão requer host posterior à release original 0.2.0. Pacotes API 1 continuam aceitos;
 pacotes novos declaram host_api 2 no envelope e catálogo, para hosts antigos recusarem a instalação.

@@ -47,9 +47,9 @@ QString NodeDescriptor::icon() const {
     return QStringLiteral("◇");
 }
 bool NodeDescriptor::needsInspector() const {
-    return missing || std::any_of(controls.cbegin(), controls.cend(), [](const auto& control) {
-               return !control.quick || control.advanced;
-           });
+    return missing || fileBankSlots > 0 ||
+           std::any_of(controls.cbegin(), controls.cend(),
+                       [](const auto& control) { return !control.quick || control.advanced; });
 }
 
 NodeCatalog::NodeCatalog() {
@@ -128,6 +128,8 @@ void NodeCatalog::setPlugins(const QJsonArray& packages) {
             static_cast<int>(package.value(QStringLiteral("outputs")).toArray().size());
         for (const auto& label : package.value(QStringLiteral("input_labels")).toArray())
             descriptor.inputLabels.append(label.toString());
+        descriptor.fileBankSlots =
+            qBound(0, package.value(QStringLiteral("file_bank_slots")).toInt(), 10);
         descriptor.filePlayer = package.value(QStringLiteral("file_player")).toBool();
         descriptor.fileTransport = package.value(QStringLiteral("file_transport")).toBool();
         descriptor.captureSource = package.value(QStringLiteral("capture_source")).toBool();

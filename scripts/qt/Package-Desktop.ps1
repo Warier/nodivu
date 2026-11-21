@@ -16,7 +16,7 @@ if ($LASTEXITCODE) { throw 'Falha na distribuição Qt.' }
 $nodivuBackend = Join-Path $nodivuRoot 'target/release/nodivu-app-backend.exe'
 New-Item -ItemType Directory -Path (Join-Path $nodivuStage 'bin') -Force | Out-Null
 Copy-Item -LiteralPath $nodivuBackend -Destination (Join-Path $nodivuStage 'bin/nodivu-app-backend.exe')
-foreach ($nodivuPlugin in @('mp3','windows-audio','voice-cleanup','peak-limiter')) {
+foreach ($nodivuPlugin in @('mp3','windows-audio','voice-cleanup','peak-limiter','soundboard')) {
     $nodivuSource = Join-Path $nodivuRoot ".local/plugins/$nodivuPlugin"
     if (!(Test-Path -LiteralPath (Join-Path $nodivuSource 'plugin.json'))) { throw "Pacote ausente: $nodivuPlugin" }
     Copy-Item -LiteralPath $nodivuSource -Destination (Join-Path $nodivuStage "plugins/$nodivuPlugin") -Recurse
@@ -31,7 +31,7 @@ if (!$nodivuCrt) { throw 'Runtime MSVC x64 app-local 14.42+ não encontrado.' }
 Get-ChildItem -LiteralPath $nodivuCrt -Filter '*.dll' | Copy-Item -Destination $nodivuStage
 & (Join-Path $PSScriptRoot 'Package-Licenses.ps1') -Destination $nodivuStage
 @('@echo off', 'start "" "%~dp0nodivu.exe" --portable') | Set-Content -LiteralPath (Join-Path $nodivuStage 'Nodivu Portable.cmd') -Encoding ascii
-@('Nodivu Qt/C++ - edição alternativa 0.2.2', '', 'Para avaliar sem usar o perfil Electron, execute Nodivu Portable.cmd ou nodivu.exe --portable.', 'O perfil separado fica em portable-profile ao lado do executável.', 'O instalador usa Nodivu Qt e perfil NodivuQt, separados do Electron. Consulte apps/nodivu-desktop/UPDATES.md no código-fonte.') |
+@("Nodivu Qt/C++ - edição alternativa $Version", '', 'Para avaliar sem usar o perfil Electron, execute Nodivu Portable.cmd ou nodivu.exe --portable.', 'O perfil separado fica em portable-profile ao lado do executável.', 'O instalador usa Nodivu Qt e perfil NodivuQt, separados do Electron. Consulte apps/nodivu-desktop/UPDATES.md no código-fonte.') |
     Set-Content -LiteralPath (Join-Path $nodivuStage 'LEIA-ME-Qt.txt') -Encoding utf8
 $nodivuFiles = @(Get-ChildItem -LiteralPath $nodivuStage -Recurse -File)
 if ($nodivuFiles | Where-Object { $_.Name -match '^(electron|node)\.exe$|^(chrome|chromium).*\.(exe|dll)$|^Qt6(WebEngine|Qml|Quick|Test).*\.dll$' -or $_.Extension -in @('.js','.cjs','.mjs') }) {

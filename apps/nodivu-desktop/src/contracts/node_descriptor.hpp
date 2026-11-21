@@ -40,6 +40,7 @@ struct NodeDescriptor {
     int inputs = 1;
     int outputs = 1;
     QStringList inputLabels;
+    int fileBankSlots = 0;
     bool filePlayer = false;
     bool fileTransport = false;
     bool captureSource = false;

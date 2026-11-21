@@ -3,6 +3,7 @@
 #include "contracts/virtual_cable.hpp"
 #include "features/graph/capture_source_widget.hpp"
 #include "features/graph/node_content.hpp"
+#include "features/soundboard/soundboard_widget.hpp"
 #include "ui/theme/studio_icons.hpp"
 #include "ui/theme/theme.hpp"
 
@@ -142,6 +143,8 @@ NodeItem::NodeItem(QString id, NodeDescriptor descriptor, SessionController& ses
         updateBodyGeometry();
     };
     connect(content_, &NodeContent::geometryChanged, this, resizeBody);
+    if (descriptor_.fileBankSlots > 0)
+        content_->addCaptureWidget(new SoundboardWidget(session, id_, true, content_));
     if (descriptor_.captureSource) {
         auto* capture = new CaptureSourceWidget(session, id_, true, content_);
         content_->addCaptureWidget(capture);
@@ -379,7 +382,8 @@ void NodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
         painter->drawRoundedRect(summary, 5, 5);
         const auto color = summaryHovered_ ? Theme::mint() : Theme::muted();
         paintStudioIcon(*painter,
-                        descriptor_.filePlayer || descriptor_.captureSource ||
+                        descriptor_.fileBankSlots > 0 || descriptor_.filePlayer ||
+                                descriptor_.captureSource ||
                                 descriptor_.kind == QStringLiteral("output") ||
                                 descriptor_.kind == QStringLiteral("capture") || descriptor_.missing
                             ? blockIcon(descriptor_)

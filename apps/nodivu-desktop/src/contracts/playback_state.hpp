@@ -22,5 +22,7 @@ struct PlaybackState {
 PlaybackState playbackState(const QJsonObject& snapshot, const QJsonObject& node,
                             const QJsonArray& devices, bool online, bool busy,
                             const QString& savedPath = {});
+PlaybackState bankPlaybackState(const QJsonObject& snapshot, const QJsonObject& node,
+                                const QJsonArray& devices, bool online, bool busy, int slot);
 QString playbackTime(int milliseconds);
 } // namespace nodivu

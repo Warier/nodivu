@@ -12,6 +12,32 @@
 
 namespace nodivu {
 namespace {
+QString resourceKey(const QJsonObject& resource) {
+    auto key = resource.value(QStringLiteral("node_id")).toString();
+    if (resource.contains(QStringLiteral("slot")))
+        key += QStringLiteral(":%1").arg(resource.value(QStringLiteral("slot")).toInt());
+    return key;
+}
+QJsonObject resourceRuntime(const QJsonObject& states, const QJsonObject& resource) {
+    const auto runtime =
+        states.value(resource.value(QStringLiteral("node_id")).toString()).toObject();
+    if (!resource.contains(QStringLiteral("slot")))
+        return runtime;
+    const auto bank = runtime.value(QStringLiteral("bank")).toArray();
+    const int slot = resource.value(QStringLiteral("slot")).toInt(-1);
+    return slot >= 0 && slot < bank.size() ? bank[slot].toObject() : QJsonObject();
+}
+QJsonObject resourceCommand(const QJsonObject& resource) {
+    QJsonObject params{{QStringLiteral("node_id"), resource.value(QStringLiteral("node_id"))},
+                       {QStringLiteral("action"), QStringLiteral("load")},
+                       {QStringLiteral("path"), resource.value(QStringLiteral("path"))}};
+    const bool bank = resource.contains(QStringLiteral("slot"));
+    if (bank)
+        params.insert(QStringLiteral("slot"), resource.value(QStringLiteral("slot")));
+    return {{QStringLiteral("method"),
+             bank ? QStringLiteral("plugin.bank") : QStringLiteral("plugin.command")},
+            {QStringLiteral("params"), params}};
+}
 QJsonObject editDocument(QJsonObject document) {
     document.remove(QStringLiteral("camera"));
     auto positions = document.value(QStringLiteral("positions")).toArray();
@@ -178,6 +204,17 @@ QJsonObject ProjectController::document() const {
         if (!file.isEmpty())
             resources.append(
                 QJsonObject{{QStringLiteral("node_id"), id}, {QStringLiteral("path"), file}});
+        const auto bank = runtime.value(QStringLiteral("bank")).toArray();
+        for (int slot = 0; slot < 10; ++slot) {
+            const auto state = slot < bank.size() ? bank[slot].toObject() : QJsonObject();
+            const auto path = state.value(QStringLiteral("assigned")).toBool()
+                                  ? state.value(QStringLiteral("file")).toString()
+                                  : resources_.value(id + QStringLiteral(":%1").arg(slot));
+            if (!path.isEmpty())
+                resources.append(QJsonObject{{QStringLiteral("node_id"), id},
+                                             {QStringLiteral("slot"), slot},
+                                             {QStringLiteral("path"), path}});
+        }
         // A present null selection is an explicit clear, not a reason to restore
         // an older persisted intent. Missing plugins still use the saved fallback.
         const auto capture = runtime.contains(QStringLiteral("capture_selection"))
@@ -302,13 +339,11 @@ void ProjectController::restoreHistory(int index) {
             if (value.toObject().value(QStringLiteral("id")) == id)
                 targetNode = value.toObject();
         const auto descriptor = session_.catalog().describe(targetNode);
-        if (session_.node(id).isEmpty() && descriptor.filePlayer && !descriptor.missing)
-            commands.append(QJsonObject{
-                {QStringLiteral("method"), QStringLiteral("plugin.command")},
-                {QStringLiteral("params"),
-                 QJsonObject{{QStringLiteral("node_id"), id},
-                             {QStringLiteral("action"), QStringLiteral("load")},
-                             {QStringLiteral("path"), resource.value(QStringLiteral("path"))}}}});
+        if (session_.node(id).isEmpty() && !descriptor.missing &&
+            (resource.contains(QStringLiteral("slot"))
+                 ? descriptor.fileBankSlots > resource.value(QStringLiteral("slot")).toInt()
+                 : descriptor.filePlayer))
+            commands.append(resourceCommand(resource));
     }
     const auto targetCaptures = target.value(QStringLiteral("captures")).toArray();
     const auto beforeCaptures = before.value(QStringLiteral("captures")).toArray();
@@ -344,7 +379,7 @@ void ProjectController::restoreHistory(int index) {
             return;
         }
         for (const auto& entry : target.value(QStringLiteral("resources")).toArray())
-            resources_.insert(entry.toObject().value(QStringLiteral("node_id")).toString(),
+            resources_.insert(resourceKey(entry.toObject()),
                               entry.toObject().value(QStringLiteral("path")).toString());
         captures_.clear();
         for (const auto& entry : target.value(QStringLiteral("captures")).toArray())
@@ -550,7 +585,7 @@ void ProjectController::openContents(const QByteArray& contents, const QString& 
                     captures_.clear();
                     for (const auto& value : project.value(QStringLiteral("resources")).toArray())
                         resources_.insert(
-                            value.toObject().value(QStringLiteral("node_id")).toString(),
+                            resourceKey(value.toObject()),
                             value.toObject().value(QStringLiteral("path")).toString());
                     for (const auto& value : project.value(QStringLiteral("captures")).toArray())
                         captures_.insert(
@@ -612,8 +647,7 @@ void ProjectController::retryPreparedAudio() {
     const auto states = session_.snapshot().value(QStringLiteral("plugin_states")).toObject();
     for (const auto& value : document().value(QStringLiteral("resources")).toArray()) {
         const auto resource = value.toObject();
-        const auto runtime =
-            states.value(resource.value(QStringLiteral("node_id")).toString()).toObject();
+        const auto runtime = resourceRuntime(states, resource);
         if (runtime.value(QStringLiteral("file")).toString().isEmpty() ||
             runtime.value(QStringLiteral("status")).toInt() <= 0)
             resources.append(resource);
@@ -640,15 +674,19 @@ void ProjectController::prepareResources(QJsonArray resources, qsizetype index) 
     }
     const auto resource = resources[index].toObject();
     const auto id = resource.value(QStringLiteral("node_id")).toString();
-    if (!session_.catalog().describe(session_.node(id)).filePlayer) {
+    const auto descriptor = session_.catalog().describe(session_.node(id));
+    const bool supported =
+        resource.contains(QStringLiteral("slot"))
+            ? descriptor.fileBankSlots > resource.value(QStringLiteral("slot")).toInt()
+            : descriptor.filePlayer;
+    if (!supported || descriptor.missing) {
         prepareResources(resources, index + 1);
         return;
     }
+    const auto command = resourceCommand(resource);
     session_.command(
-        QStringLiteral("plugin.command"),
-        {{QStringLiteral("node_id"), id},
-         {QStringLiteral("action"), QStringLiteral("load")},
-         {QStringLiteral("path"), resource.value(QStringLiteral("path"))}},
+        command.value(QStringLiteral("method")).toString(),
+        command.value(QStringLiteral("params")).toObject(),
         [this, resources, index](const BackendReply&) { prepareResources(resources, index + 1); });
 }
 void ProjectController::remember(const QString& file) {

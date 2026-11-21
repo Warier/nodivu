@@ -55,8 +55,12 @@ QVariant ReadmeView::loadResource(int type, const QUrl& name) {
     if (info.isSymbolicLink() || info.isJunction() || !input.open(QIODevice::ReadOnly) ||
         input.size() > 2 * 1024 * 1024)
         return {};
-    QImageReader reader(&input);
-    reader.setAutoDetectImageFormat(true);
+    const auto expectedFormat =
+        extension == QStringLiteral("jpg") ? QByteArray("jpeg") : extension.toLatin1();
+    if (QImageReader::imageFormat(&input) != expectedFormat)
+        return {};
+    QImageReader reader(&input, expectedFormat);
+    reader.setAutoDetectImageFormat(false);
     const auto size = reader.size();
     if (!size.isValid() || size.width() > 4096 || size.height() > 4096 ||
         static_cast<qint64>(size.width()) * size.height() > 8 * 1024 * 1024)

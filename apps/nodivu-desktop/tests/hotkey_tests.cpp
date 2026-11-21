@@ -1,9 +1,13 @@
 #include "features/hotkeys/hotkey_service.hpp"
+#include "features/inspector/inspector_panel.hpp"
 #include "features/projects/project_controller.hpp"
 #include "features/store/tuf_client.hpp"
 #include "features/workspace/main_window.hpp"
 #include "platform/diagnostic_export.hpp"
+#include "ui/theme/theme.hpp"
+#include <QDataStream>
 #include <QDialog>
+#include <QPushButton>
 #include <QTemporaryDir>
 #include <QtTest>
 #ifdef Q_OS_WIN
@@ -118,6 +122,159 @@ class HotkeyTests final : public QObject {
             service.save(config(binding(QStringLiteral("absent/plugin/player.play")))).isEmpty());
         QCOMPARE(service.state(QStringLiteral("test")),
                  QStringLiteral("Bloco/ação ausente neste projeto"));
+    }
+    void soundboardProjectSlotsPresetAndClear() {
+        if (!qEnvironmentVariableIsEmpty("NODIVU_SOUNDBOARD_OUTPUT"))
+            Theme::apply(*qobject_cast<QApplication*>(qApp));
+        QTemporaryDir temporary;
+        auto paths = AppPaths::development(QStringLiteral(NODIVU_REPOSITORY_DIR));
+        paths.profile = temporary.path();
+        paths.plugins = QDir(temporary.path()).filePath(QStringLiteral("plugins"));
+        paths.storeSource.clear();
+        paths.updatesSource.clear();
+        const auto audio = QDir(temporary.path()).filePath(QStringLiteral("sound.wav"));
+        QFile wave(audio);
+        QVERIFY(wave.open(QIODevice::WriteOnly));
+        QDataStream out(&wave);
+        out.setByteOrder(QDataStream::LittleEndian);
+        out.writeRawData("RIFF", 4);
+        out << quint32(36 + 288000);
+        out.writeRawData("WAVEfmt ", 8);
+        out << quint32(16) << quint16(1) << quint16(1) << quint32(48000) << quint32(96000)
+            << quint16(2) << quint16(16);
+        out.writeRawData("data", 4);
+        out << quint32(288000);
+        for (int i = 0; i < 144000; ++i)
+            out << qint16(i % 100 < 50 ? 1000 : -1000);
+        wave.close();
+        MainWindow window(paths);
+        window.show();
+        auto& session = window.session();
+        auto* projects = window.findChild<ProjectController*>();
+        auto* service = window.findChild<HotkeyService*>();
+        QTRY_VERIFY_WITH_TIMEOUT(session.settled() && !projects->busy(), 10000);
+        session.addNode(QStringLiteral("plugin"), QStringLiteral("org.nodivu.soundboard"));
+        QTRY_VERIFY_WITH_TIMEOUT(session.settled(), 5000);
+        QString id;
+        for (const auto& a : service->actions())
+            if (a.operation == QStringLiteral("bank.trigger")) {
+                id = a.node;
+                break;
+            }
+        QVERIFY(!id.isEmpty());
+        auto* inspector = window.findChild<InspectorPanel*>();
+        QVERIFY(inspector);
+        inspector->inspect(id);
+        QVERIFY(inspector->findChild<QPushButton*>(QStringLiteral("soundboardFile9")));
+        auto loaded = [&](int slot) {
+            return session.snapshot()
+                       .value(QStringLiteral("plugin_states"))
+                       .toObject()
+                       .value(id)
+                       .toObject()
+                       .value(QStringLiteral("bank"))
+                       .toArray()[slot]
+                       .toObject()
+                       .value(QStringLiteral("status"))
+                       .toInt() == 2;
+        };
+        for (int slot = 0; slot < 10; ++slot) {
+            session.command(QStringLiteral("plugin.bank"),
+                            {{QStringLiteral("node_id"), id},
+                             {QStringLiteral("slot"), slot},
+                             {QStringLiteral("action"), QStringLiteral("load")},
+                             {QStringLiteral("path"), audio}});
+            QTRY_VERIFY_WITH_TIMEOUT(session.settled() && loaded(slot), 5000);
+        }
+        QCOMPARE(projects->document().value(QStringLiteral("resources")).toArray().size(), 10);
+        QVERIFY(service->soundboardPreset(id).isEmpty());
+        QCOMPARE(service->config().value(QStringLiteral("bindings")).toArray().size(), 10);
+        QVERIFY(service->soundboardPreset(id).isEmpty());
+        QCOMPARE(service->config().value(QStringLiteral("bindings")).toArray().size(), 10);
+        // Optional hardware gate: the ordinary CTest case above uses no endpoint.
+        const auto endpoint = qEnvironmentVariable("NODIVU_SOUNDBOARD_OUTPUT");
+        if (!endpoint.isEmpty()) {
+            session.addNode(QStringLiteral("output"));
+            QTRY_VERIFY(session.settled());
+            QString output;
+            for (const auto& n : session.snapshot()
+                                     .value(QStringLiteral("graph"))
+                                     .toObject()
+                                     .value(QStringLiteral("nodes"))
+                                     .toArray())
+                if (n.toObject()
+                        .value(QStringLiteral("block"))
+                        .toObject()
+                        .value(QStringLiteral("kind"))
+                        .toString() == QStringLiteral("output"))
+                    output = n.toObject().value(QStringLiteral("id")).toString();
+            QVERIFY(!output.isEmpty());
+            session.updateField(output, QStringLiteral("endpoint_id"), endpoint);
+            QTRY_VERIFY(session.settled());
+            session.connectNodes(id, 0, output, 0);
+            QTRY_VERIFY(session.settled());
+            QTRY_COMPARE(session.snapshot().value(QStringLiteral("engine_state")).toString(),
+                         QStringLiteral("running"));
+            const auto generation = session.snapshot().value(QStringLiteral("generation"));
+            const auto bindings = service->config().value(QStringLiteral("bindings")).toArray();
+            QSignalSpy fired(service, &HotkeyService::result);
+            window.showMinimized();
+            service->fire(bindings[0].toObject().value(QStringLiteral("id")).toString(), true);
+            service->fire(bindings[1].toObject().value(QStringLiteral("id")).toString(), true);
+            QTRY_COMPARE_WITH_TIMEOUT(fired.size(), 2, 3000);
+            QVERIFY(fired[0][0].toBool());
+            QVERIFY(fired[1][0].toBool());
+            QTRY_VERIFY(session.snapshot()
+                            .value(QStringLiteral("metrics"))
+                            .toObject()
+                            .value(QStringLiteral("output_peak"))
+                            .toDouble() > 0.01);
+            const auto playing = [&](int slot) {
+                return session.snapshot()
+                           .value(QStringLiteral("plugin_states"))
+                           .toObject()
+                           .value(id)
+                           .toObject()
+                           .value(QStringLiteral("bank"))
+                           .toArray()[slot]
+                           .toObject()
+                           .value(QStringLiteral("status"))
+                           .toInt() == 3;
+            };
+            QTRY_VERIFY_WITH_TIMEOUT(playing(0) && playing(1), 2000);
+            QCOMPARE(session.snapshot().value(QStringLiteral("generation")), generation);
+            window.showNormal();
+            QTest::qWait(1100);
+            qInfo("PASS: Qt minimized, two queued soundboard hotkeys, real WASAPI output, stable "
+                  "generation");
+        }
+        const auto file = QDir(temporary.path()).filePath(QStringLiteral("bank.nodivu.json"));
+        projects->save(file);
+        QTRY_VERIFY_WITH_TIMEOUT(!projects->busy() && session.settled() && QFile::exists(file),
+                                 5000);
+        projects->open(file);
+        QTRY_VERIFY_WITH_TIMEOUT(!projects->busy() && session.settled() && loaded(9), 10000);
+        QCOMPARE(projects->document().value(QStringLiteral("resources")).toArray().size(), 10);
+        QVERIFY(loaded(0));
+        session.command(QStringLiteral("plugin.bank"),
+                        {{QStringLiteral("node_id"), id},
+                         {QStringLiteral("slot"), 0},
+                         {QStringLiteral("action"), QStringLiteral("clear")}});
+        QTRY_VERIFY(session.settled());
+        QCOMPARE(projects->document().value(QStringLiteral("resources")).toArray().size(), 9);
+        projects->save(file);
+        QTRY_VERIFY(!projects->busy() && session.settled());
+        projects->open(file);
+        QTRY_VERIFY_WITH_TIMEOUT(!projects->busy() && session.settled() && loaded(9), 10000);
+        QCOMPARE(projects->document().value(QStringLiteral("resources")).toArray().size(), 9);
+        QVERIFY(!loaded(0));
+        if (!endpoint.isEmpty()) {
+            inspector->inspect(id);
+            window.showNormal();
+            QTest::qWait(80);
+            QVERIFY(window.grab().save(QStringLiteral(NODIVU_REPOSITORY_DIR) +
+                                       QStringLiteral("/.local/qt-build/soundboard-qt.png")));
+        }
     }
     void gainAgainstRealBackendAndDisabledBinding() {
         QTemporaryDir temporary;

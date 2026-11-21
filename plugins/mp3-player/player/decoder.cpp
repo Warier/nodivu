@@ -15,7 +15,10 @@ static void check_cancelled(const DecodeCancellation &cancel) {
   if (cancel.cancelled())
     throw E_ABORT;
 }
-Clip decode_file(const std::wstring &path, const DecodeCancellation &cancel) {
+Clip decode_file_limited(const std::wstring &path,
+                         const DecodeCancellation &cancel, unsigned seconds) {
+  if (seconds < 1 || seconds > 600)
+    throw E_INVALIDARG;
   // Called only on the decoder thread, whose COM/MF lifetime encloses this
   // call.
   ComPtr<IMFSourceReader> reader;
@@ -47,7 +50,7 @@ Clip decode_file(const std::wstring &path, const DecodeCancellation &cancel) {
     throw E_INVALIDARG;
   Clip clip;
   clip.rate = rate;
-  const size_t max_samples = static_cast<size_t>(rate) * 600 * 2;
+  const size_t max_samples = static_cast<size_t>(rate) * seconds * 2;
   for (;;) {
     check_cancelled(cancel);
     DWORD flags = 0;
@@ -95,4 +98,8 @@ Clip decode_file(const std::wstring &path, const DecodeCancellation &cancel) {
   if (cancel.cancelled() || clip.pcm.empty())
     throw E_ABORT;
   return clip;
+}
+
+Clip decode_file(const std::wstring &path, const DecodeCancellation &cancel) {
+  return decode_file_limited(path, cancel, 600);
 }

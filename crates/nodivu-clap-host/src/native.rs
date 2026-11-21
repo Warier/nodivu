@@ -470,6 +470,75 @@ impl OfflinePlugin {
             Ok(instance)
         }
     }
+    /// Optional file-bank/1; bounded slots, owner/main thread, scalar telemetry.
+    pub fn file_bank_slots(&self) -> Result<u32> {
+        // SAFETY: plugin and extension outlive this main-thread owner; the trusted
+        // versioned ABI returns a constant slot count and retains no borrowed data.
+        unsafe {
+            let ext = self.file_bank_extension()?;
+            let count = required((*ext).count)?(self.plugin);
+            if !(1..=10).contains(&count) {
+                return Err(Error::Contract("Banco fora do limite de dez sons"));
+            }
+            Ok(count)
+        }
+    }
+    fn file_bank_extension(&self) -> Result<*const FileBank> {
+        // SAFETY: initialized trusted plugin; the extension is borrowed until unload.
+        unsafe {
+            let ext = required((*self.plugin).get_extension)?(
+                self.plugin,
+                c"org.nodivu.file-bank/1".as_ptr(),
+            )
+            .cast::<FileBank>();
+            if ext.is_null() {
+                return Err(Error::Contract("Plugin sem banco de arquivos"));
+            }
+            Ok(ext)
+        }
+    }
+    pub fn file_bank(
+        &self,
+        action: &str,
+        slot: u32,
+        path: Option<&str>,
+    ) -> Result<(u32, u32, i32)> {
+        if slot >= self.file_bank_slots()? {
+            return Err(Error::Contract("Posição de áudio inválida"));
+        }
+        // SAFETY: owner/main only; count checked, valid C strings borrowed during
+        // load and copied by plugin. No audio/heap ownership crosses the ABI.
+        unsafe {
+            let ext = self.file_bank_extension()?;
+            let accepted = match action {
+                "load" | "clear" => {
+                    let path = path
+                        .map(CString::new)
+                        .transpose()
+                        .map_err(|_| Error::Contract("Caminho contém NUL"))?;
+                    required((*ext).load)?(
+                        self.plugin,
+                        slot,
+                        path.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
+                    )
+                }
+                "trigger" => required((*ext).trigger)?(self.plugin, slot),
+                "stop" => required((*ext).stop)?(self.plugin, slot),
+                "status" => true,
+                _ => return Err(Error::Contract("Ação do banco desconhecida")),
+            };
+            if !accepted {
+                return Err(Error::Contract(
+                    "Som ainda indisponível ou comando recusado",
+                ));
+            }
+            Ok((
+                required((*ext).position)?(self.plugin, slot),
+                required((*ext).duration)?(self.plugin, slot),
+                required((*ext).status)?(self.plugin, slot),
+            ))
+        }
+    }
     /// Nodivu file-player/1 extension; main thread only, local path copied by plugin.
     pub fn file_command(&self, action: &str, path: Option<&str>) -> Result<i32> {
         #[repr(C)]
@@ -1155,4 +1224,16 @@ unsafe fn validate_port(port: &clap_audio_port_info) -> Result<()> {
         return Err(Error::Contract("Tipo de porta não estéreo"));
     }
     Ok(())
+}
+
+/// C ABI org.nodivu.file-bank/1. All calls belong to owner/main, never DSP.
+#[repr(C)]
+struct FileBank {
+    count: Option<unsafe extern "C" fn(*const clap_plugin) -> u32>,
+    load: Option<unsafe extern "C" fn(*const clap_plugin, u32, *const c_char) -> bool>,
+    trigger: Option<unsafe extern "C" fn(*const clap_plugin, u32) -> bool>,
+    stop: Option<unsafe extern "C" fn(*const clap_plugin, u32) -> bool>,
+    status: Option<unsafe extern "C" fn(*const clap_plugin, u32) -> i32>,
+    position: Option<unsafe extern "C" fn(*const clap_plugin, u32) -> u32>,
+    duration: Option<unsafe extern "C" fn(*const clap_plugin, u32) -> u32>,
 }

@@ -15,6 +15,7 @@ try {
         cargo rustc -p nodivu-app-backend --release --locked -- -C target-feature=+crt-static
         if ($LASTEXITCODE) { throw 'Falha ao compilar o backend existente.' }
         & "$PSScriptRoot/Build-Mp3Plugin.ps1"
+        & "$PSScriptRoot/Build-SoundboardPlugin.ps1"
         & "$PSScriptRoot/Build-WindowsAudioPlugin.ps1"
         & "$PSScriptRoot/Build-AudioCleanup.ps1"
     }

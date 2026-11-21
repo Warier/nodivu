@@ -225,7 +225,7 @@ impl PluginBackend {
             let file_transport = owners[i * MAX_PLUGIN_NODES]
                 .file_transport("status", None)
                 .is_ok();
-            catalog.push(json!({"latency_frames":metadata.latency_frames,"capture_source":owners[i * MAX_PLUGIN_NODES].capture_snapshot().is_ok(),"file_transport":file_transport,"id":metadata.id,"name":metadata.name,"appearance":appearance,"parameters":parameters,"source":!metadata.has_input,"consumer":!metadata.has_output,"inputs":if metadata.has_sidechain {vec![0,1]} else if metadata.has_input {vec![0]} else {vec![]},"input_labels":if metadata.has_sidechain {vec!["Áudio", "Referência"]} else {vec!["Áudio"]},"outputs":if metadata.has_output {vec![0]} else {vec![]},"file_player":file_player}));
+            catalog.push(json!({"file_bank_slots":owners[i * MAX_PLUGIN_NODES].file_bank_slots().unwrap_or(0),"latency_frames":metadata.latency_frames,"capture_source":owners[i * MAX_PLUGIN_NODES].capture_snapshot().is_ok(),"file_transport":file_transport,"id":metadata.id,"name":metadata.name,"appearance":appearance,"parameters":parameters,"source":!metadata.has_input,"consumer":!metadata.has_output,"inputs":if metadata.has_sidechain {vec![0,1]} else if metadata.has_input {vec![0]} else {vec![]},"input_labels":if metadata.has_sidechain {vec!["Áudio", "Referência"]} else {vec!["Áudio"]},"outputs":if metadata.has_output {vec![0]} else {vec![]},"file_player":file_player}));
             specs.push((
                 metadata.id.clone(),
                 parameters,
@@ -272,6 +272,7 @@ impl PluginBackend {
                 .map(|_| std::array::from_fn(|_| AtomicU64::new(0)))
                 .collect(),
             capture: capture::CaptureControls::prepare(owners)?,
+            banks: crate::soundboard::Banks::new(owners),
             slots: (0..count).map(|_| InstanceMailbox::default()).collect(),
             faults: (0..count)
                 .map(|_| crate::plugin_fault::FaultMailbox::default())
@@ -463,6 +464,7 @@ impl DeviceBackend for PluginBackend {
                 self.controls.capture.clear(index)?;
                 self.capture_selections[index] = None;
                 self.files[index].clear();
+                self.controls.banks.reset(index).map_err(invalid)?;
                 // Owner/decoder reclaim PCM outside DSP. Clear is hazard-protected by
                 // the player even if the old audio plan has not observed removal yet.
                 let mut commands = self
@@ -509,6 +511,7 @@ impl DeviceBackend for PluginBackend {
                         lease.store(0, SeqCst);
                     }
                     self.files[index].clear();
+                    self.controls.banks.reset(index).map_err(invalid)?;
                     self.controls.capture.clear(index)?;
                     self.capture_selections[index] = None;
                     self.controls.status[index].store(0, SeqCst);
@@ -557,11 +560,29 @@ impl DeviceBackend for PluginBackend {
                 } else {
                     json!({"capture":self.controls.capture.state(i),"capture_selection":self.capture_selections[i],"status":self.controls.status[i].load(SeqCst),"file":self.files[i],"position_ms":self.controls.position_ms[i].load(SeqCst),"duration_ms":self.controls.duration_ms[i].load(SeqCst)})
                 };
+                state["bank"] = self.controls.banks.snapshot(i);
                 state["fault"] = self.controls.faults[i].snapshot(*id);
                 result.insert(id.0.to_string(), state);
             }
         }
         Value::Object(result)
+    }
+    fn plugin_bank(
+        &mut self,
+        id: NodeId,
+        action: &str,
+        slot: u8,
+        path: Option<&str>,
+    ) -> Result<(), BackendError> {
+        let index = self
+            .slots
+            .iter()
+            .position(|n| *n == Some(id))
+            .ok_or_else(|| invalid("Nó ausente"))?;
+        self.controls
+            .banks
+            .command(index, slot, action, path)
+            .map_err(invalid)
     }
     fn plugin_command(
         &mut self,
@@ -681,6 +702,7 @@ pub struct PluginControls {
     gestures: Vec<Vec<u32>>,
     leases: Vec<[AtomicU64; 32]>,
     capture: capture::CaptureControls,
+    banks: crate::soundboard::Banks,
     native_count: usize,
     workers: Vec<crate::python_worker::Package>,
     worker_states: Vec<Arc<crate::python_worker::State>>,
@@ -695,6 +717,7 @@ pub struct PluginControls {
 impl PluginControls {
     pub fn maintain(&self, owners: &[OfflinePlugin]) {
         self.capture.maintain(owners);
+        self.banks.maintain(owners);
         if let Ok(mut queue) = self.commands.lock() {
             for (i, action, path, position_ms) in queue.drain(..) {
                 if i >= owners.len() {

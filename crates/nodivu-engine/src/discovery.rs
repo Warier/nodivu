@@ -151,6 +151,18 @@ pub trait DeviceBackend {
             std::io::Error::other("Plugin sem gesto momentâneo"),
         ))
     }
+    fn plugin_bank(
+        &mut self,
+        _id: nodivu_core::graph::NodeId,
+        _action: &str,
+        _slot: u8,
+        _path: Option<&str>,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::new(
+            "banco de arquivos",
+            std::io::Error::from(std::io::ErrorKind::Unsupported),
+        ))
+    }
     fn plugin_command(
         &mut self,
         _id: nodivu_core::graph::NodeId,

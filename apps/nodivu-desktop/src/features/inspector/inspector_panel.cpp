@@ -2,6 +2,7 @@
 #include "contracts/playback_state.hpp"
 #include "contracts/virtual_cable.hpp"
 #include "features/graph/capture_source_widget.hpp"
+#include "features/soundboard/soundboard_widget.hpp"
 #include "ui/controls/control_presentation.hpp"
 #include "ui/controls/device_selector.hpp"
 #include "ui/controls/inline_check_box.hpp"
@@ -385,6 +386,8 @@ void InspectorPanel::rebuild() {
     }
     if (tabs)
         connect(tabs, &QTabWidget::currentChanged, this, &InspectorPanel::constrainToParent);
+    if (descriptor.fileBankSlots > 0)
+        layout->addWidget(new SoundboardWidget(session_, selectedId_, false, content_));
     if (descriptor.filePlayer)
         mountPlayer(layout, descriptor);
     if (descriptor.captureSource)

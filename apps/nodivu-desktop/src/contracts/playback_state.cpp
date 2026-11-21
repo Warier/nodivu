@@ -56,6 +56,26 @@ QString decodeFailure(int status) {
         .arg(code, 8, 16, QLatin1Char('0'));
 }
 } // namespace
+PlaybackState bankPlaybackState(const QJsonObject& snapshot, const QJsonObject& node,
+                                const QJsonArray& devices, bool online, bool busy, int slot) {
+    const auto id = node.value(QStringLiteral("id")).toString();
+    auto states = snapshot.value(QStringLiteral("plugin_states")).toObject();
+    const auto runtime = states.value(id).toObject();
+    const auto bank = runtime.value(QStringLiteral("bank")).toArray();
+    auto entry = slot >= 0 && slot < bank.size() ? bank[slot].toObject() : QJsonObject();
+    entry.insert(QStringLiteral("fault"), runtime.value(QStringLiteral("fault")));
+    states.insert(id, entry);
+    auto adapted = snapshot;
+    adapted.insert(QStringLiteral("plugin_states"), states);
+    auto result = playbackState(adapted, node, devices, online, busy);
+    if (entry.value(QStringLiteral("status")).toInt() < 0)
+        result.reason =
+            QStringLiteral("Falha ao carregar. Use MP3/WAV/M4A local de até 60 segundos e 32 MiB.");
+    if (!entry.value(QStringLiteral("error")).toString().isEmpty())
+        result.reason = entry.value(QStringLiteral("error")).toString();
+    result.canPlay = result.reason.isEmpty();
+    return result;
+}
 QString playbackTime(int milliseconds) {
     const int seconds = std::max(0, milliseconds) / 1000;
     return QStringLiteral("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));

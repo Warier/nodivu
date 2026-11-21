@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "library": "nodivu-soundboard.clap",
+  "plugin_id": "org.nodivu.soundboard",
+  "title": "Soundboard",
+  "description": "Dez sons independentes, MP3/WAV/M4A de até 60 s por posição. Configure no inspetor e dispare por atalhos.",
+  "accent": "#EDB86A",
+  "layout": "stack",
+  "controls": []
+}

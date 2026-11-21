@@ -29,6 +29,7 @@ class HotkeyService final : public QObject, public QAbstractNativeEventFilter {
         return loadError_;
     }
     QString save(const QJsonObject& config);
+    QString soundboardPreset(const QString& node);
     void suspend(bool value);
     void fire(const QString& id, bool test = false);
     void setBlocked(std::function<bool()> blocked) {
@@ -62,6 +63,13 @@ class HotkeyService final : public QObject, public QAbstractNativeEventFilter {
     QElapsedTimer clock_;
     QDeadlineTimer deadline_;
     std::function<bool()> blocked_;
+    struct QueuedBank {
+        QString id;
+        bool test;
+        qint64 expires;
+    };
+    QList<QueuedBank> bankQueue_;
+    bool pendingBank_ = false;
     bool suspended_ = false, pending_ = false;
 };
 void showHotkeys(HotkeyService& service, QWidget* parent);

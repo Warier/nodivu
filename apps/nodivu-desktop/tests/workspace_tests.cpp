@@ -974,7 +974,13 @@ class WorkspaceTests final : public QObject {
             QTest::qWait(80);
             auto* scroll = inspector->findChild<QScrollArea*>();
             QVERIFY(scroll);
-            QTRY_COMPARE(scroll->verticalScrollBar()->maximum(), 0);
+            if (descriptor.fileBankSlots > 0) {
+                auto* last = inspector->findChild<QPushButton*>(QStringLiteral("soundboardFile9"));
+                QVERIFY(last);
+                scroll->ensureWidgetVisible(last);
+                QVERIFY(last->isVisible());
+            } else
+                QTRY_COMPARE(scroll->verticalScrollBar()->maximum(), 0);
             QCOMPARE(scroll->horizontalScrollBar()->maximum(), 0);
             QVERIFY(inspector->findChild<QLabel*>(QStringLiteral("blockNote")));
             if (!evidence.isEmpty()) {

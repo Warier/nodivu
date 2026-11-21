@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QUuid>
 #include <algorithm>
 extern "C" {
@@ -276,7 +277,8 @@ PackageRecord PackageService::inspect(const QString& directory) {
             record.author.size() > 128 ||
             (data.contains(QStringLiteral("host_api")) &&
              data.value(QStringLiteral("host_api")).toInt() != 1 &&
-             data.value(QStringLiteral("host_api")).toInt() != 2) ||
+             data.value(QStringLiteral("host_api")).toInt() != 2 &&
+             data.value(QStringLiteral("host_api")).toInt() != 3) ||
             (data.contains(QStringLiteral("platform")) &&
              data.value(QStringLiteral("platform")).toString() != QStringLiteral("win32-x64")))
             return fail(QStringLiteral("Envelope de pacote, API ou plataforma incompatível."));
@@ -442,7 +444,7 @@ PackageResult PackageService::markRemoved(const QString& key, bool removed) {
 bool PackageService::isProtected(const QString& key) {
     return key == QStringLiteral(".") || key == QStringLiteral("mp3") ||
            key == QStringLiteral("windows-audio") || key == QStringLiteral("voice-cleanup") ||
-           key == QStringLiteral("peak-limiter");
+           key == QStringLiteral("peak-limiter") || key == QStringLiteral("soundboard");
 }
 QHash<QString, QString> PackageService::pendingVersions(QString& error) const {
     QHash<QString, QString> versions;
@@ -498,9 +500,11 @@ PackageResult PackageService::importZip(const QString& file, const std::atomic_b
     const auto unpackRoot = QDir(profile_).filePath(QStringLiteral("plugin-unpack"));
     if (linked(unpackRoot) || !QDir().mkpath(unpackRoot))
         return {QStringLiteral("Pasta temporária inválida."), {}};
-    const auto destination =
-        QDir(unpackRoot).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
-    QDir().mkpath(destination);
+    // importFolder takes its own staging copy, including for a deferred update.
+    QTemporaryDir unpack(QDir(unpackRoot).filePath(QStringLiteral("XXXXXX")));
+    if (!unpack.isValid())
+        return {QStringLiteral("Falha ao criar a pasta temporária do ZIP."), {}};
+    const auto destination = unpack.path();
     for (mz_uint index = 0; index < count; ++index) {
         if (cancelled && cancelled->load())
             return {QStringLiteral("Extração cancelada."), {}};
@@ -548,8 +552,9 @@ PackageResult PackageService::prepareBundled(const QString& bundled) {
         return {};
     if (linked(root_) || linked(bundled) || !QDir().mkpath(root_))
         return {QStringLiteral("Pasta de plugins embarcados inválida."), {}};
-    for (const auto& key : {QStringLiteral("mp3"), QStringLiteral("windows-audio"),
-                            QStringLiteral("voice-cleanup"), QStringLiteral("peak-limiter")}) {
+    for (const auto& key :
+         {QStringLiteral("mp3"), QStringLiteral("windows-audio"), QStringLiteral("voice-cleanup"),
+          QStringLiteral("peak-limiter"), QStringLiteral("soundboard")}) {
         const auto source = QDir(bundled).filePath(key);
         const auto destination = QDir(root_).filePath(key);
         if (!QFileInfo::exists(source))
@@ -709,7 +714,8 @@ PackageResult PackageService::applyPending() {
         if (!record.removed || record.key == QStringLiteral(".") ||
             record.key == QStringLiteral("mp3") || record.key == QStringLiteral("windows-audio") ||
             record.key == QStringLiteral("voice-cleanup") ||
-            record.key == QStringLiteral("peak-limiter") || linked(record.directory))
+            record.key == QStringLiteral("peak-limiter") ||
+            record.key == QStringLiteral("soundboard") || linked(record.directory))
             continue;
         const auto destination =
             QDir(archive).filePath(record.key.left(100) + QLatin1Char('-') +

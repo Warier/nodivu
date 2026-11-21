@@ -10,6 +10,7 @@
 #include <QKeyEvent>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QUuid>
 #include <QWidget>
 #include <algorithm>
 #include <cmath>
@@ -174,6 +175,13 @@ QVector<HotkeyAction> HotkeyService::actions() const {
             (descriptor.pluginId.isEmpty() ? descriptor.kind : descriptor.pluginId) +
             QLatin1Char('/');
         const auto label = descriptor.title + QStringLiteral(" [%1] · ").arg(id.left(8));
+        for (int slot = 0; slot < descriptor.fileBankSlots; ++slot)
+            for (const auto& op : {QStringLiteral("trigger"), QStringLiteral("stop")})
+                add(prefix + QStringLiteral("bank.%1.").arg(slot) + op,
+                    label + QStringLiteral("Som %1 · ").arg(slot + 1) +
+                        (op == QStringLiteral("trigger") ? QStringLiteral("tocar")
+                                                         : QStringLiteral("parar")),
+                    id, QStringLiteral("bank.") + op, QString::number(slot));
         if (descriptor.filePlayer) {
             add(prefix + QStringLiteral("player.play"), label + QStringLiteral("reproduzir"), id,
                 QStringLiteral("player.play"));
@@ -205,6 +213,33 @@ QVector<HotkeyAction> HotkeyService::actions() const {
         }
     }
     return result;
+}
+QString HotkeyService::soundboardPreset(const QString& node) {
+    auto next = config_;
+    QSet<QString> targets;
+    QJsonArray additions;
+    for (const auto& a : actions())
+        if (a.node == node && a.operation == QStringLiteral("bank.trigger")) {
+            targets.insert(a.id);
+            additions.append(QJsonObject{
+                {QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
+                {QStringLiteral("label"), a.label},
+                {QStringLiteral("action"), a.id},
+                {QStringLiteral("enabled"), true},
+                {QStringLiteral("scope"), QStringLiteral("global")},
+                {QStringLiteral("accelerator"),
+                 QStringLiteral("Control+Shift+%1").arg((a.field.toInt() + 1) % 10)}});
+        }
+    if (additions.isEmpty())
+        return QStringLiteral("Soundboard indisponível.");
+    QJsonArray bindings;
+    for (const auto& b : config_.value(QStringLiteral("bindings")).toArray())
+        if (!targets.contains(b.toObject().value(QStringLiteral("action")).toString()))
+            bindings.append(b);
+    for (const auto& b : additions)
+        bindings.append(b);
+    next.insert(QStringLiteral("bindings"), bindings);
+    return save(next);
 }
 void HotkeyService::unregister() {
 #ifdef Q_OS_WIN
@@ -345,7 +380,18 @@ bool HotkeyService::eventFilter(QObject*, QEvent* event) {
 }
 void HotkeyService::finish(bool ok, const QString& message) {
     pending_ = false;
+    pendingBank_ = false;
     emit result(ok, message);
+    while (!bankQueue_.isEmpty()) {
+        const auto next = bankQueue_.takeFirst();
+        if (next.expires >= clock_.elapsed()) {
+            QTimer::singleShot(0, this, [this, next] {
+                if (next.expires >= clock_.elapsed())
+                    fire(next.id, next.test);
+            });
+            break;
+        }
+    }
 }
 void HotkeyService::fire(const QString& id, bool test) {
     QJsonObject binding;
@@ -356,6 +402,13 @@ void HotkeyService::fire(const QString& id, bool test) {
         (!test && (suspended_ || !config_.value(QStringLiteral("enabled")).toBool() ||
                    !binding.value(QStringLiteral("enabled")).toBool())))
         return;
+    const bool bank = QRegularExpression(QStringLiteral("/bank\\.[0-9]\\.trigger$"))
+                          .match(binding.value(QStringLiteral("action")).toString())
+                          .hasMatch();
+    if (pending_ && pendingBank_ && bank && bankQueue_.size() < 10) {
+        bankQueue_.append({id, test, clock_.elapsed() + 250});
+        return;
+    }
     if (pending_) {
         emit result(false, QStringLiteral("Outra ação está em andamento; atalho ignorado."));
         return;
@@ -366,6 +419,7 @@ void HotkeyService::fire(const QString& id, bool test) {
     for (const auto& a : actions())
         if (a.id == binding.value(QStringLiteral("action")).toString()) {
             pending_ = true;
+            pendingBank_ = bank;
             deadline_ = QDeadlineTimer(7000);
             if (a.operation == QStringLiteral("show"))
                 execute(a, binding);
@@ -429,6 +483,18 @@ void HotkeyService::execute(const HotkeyAction& a, const QJsonObject& b) {
         return;
     }
     const auto node = session_.node(a.node);
+    if (a.operation.startsWith(QStringLiteral("bank."))) {
+        const auto state = bankPlaybackState(session_.snapshot(), node, session_.devices(), true,
+                                             false, a.field.toInt());
+        if (a.operation == QStringLiteral("bank.trigger") && !state.canPlay) {
+            finish(false, state.reason);
+            return;
+        }
+        command(QStringLiteral("plugin.bank"), {{QStringLiteral("node_id"), a.node},
+                                                {QStringLiteral("slot"), a.field.toInt()},
+                                                {QStringLiteral("action"), a.operation.mid(5)}});
+        return;
+    }
     if (a.operation.startsWith(QStringLiteral("player."))) {
         const auto state =
             playbackState(session_.snapshot(), node, session_.devices(), true, false);
